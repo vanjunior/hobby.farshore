@@ -1,0 +1,2407 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farshore</title>
+<meta name="description" content="Farshore: terbang bebas menjelajahi tata surya, langsung di browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: one full-screen 3D view. Flight instruments sit in the corners and along the top edge;
+     the menu is a single left column so the chosen ship stays visible on the right. */
+  --void: #03050a;
+  --ink: #0a0e17;
+  --bone: #ede7da;
+  --dust: #a9afbe;
+  --lamp: #ffb648;
+  --world: #6fa8ff;
+  --hair: rgba(237, 231, 218, 0.2);
+  --hud: 0.8;
+  --display: "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --body: "Newsreader", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --gutter: clamp(14px, 2.6vw, 34px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+html { background: var(--void); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; overflow: hidden; position: relative;
+  background: var(--void) radial-gradient(120% 80% at 70% 110%, #12305f 0%, #071224 38%, var(--void) 70%);
+  color: var(--bone); font-family: var(--display); font-size: 1rem; line-height: 1.4;
+  -webkit-font-smoothing: antialiased; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+}
+h1, h2, p, dl, dd, fieldset, legend { margin: 0; padding: 0; border: 0; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--lamp); outline-offset: 3px; border-radius: 2px; }
+.num, output, dd { font-variant-numeric: tabular-nums; }
+
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; opacity: 0; transition: opacity 1.2s ease; touch-action: none; outline: none; }
+.ready #scene { opacity: 1; }
+.no-gl #scene { display: none; }
+.nogl { display: none; position: absolute; right: var(--gutter); bottom: var(--gutter); max-width: 24rem; font-family: var(--body); color: var(--dust); z-index: 40; }
+.no-gl .nogl { display: block; }
+
+/* ---------- menu ---------- */
+.menu { position: absolute; inset: 0; z-index: 30; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: linear-gradient(90deg, rgba(3, 5, 10, 0.9) 0%, rgba(3, 5, 10, 0.72) 34%, rgba(3, 5, 10, 0) 62%);
+  transition: opacity 0.45s ease, visibility 0.45s; }
+.playing .menu { opacity: 0; visibility: hidden; pointer-events: none; }
+.menu-in { min-height: 100%; width: min(40rem, 100%); padding: clamp(20px, 4.5vh, 52px) var(--gutter) clamp(18px, 3vh, 36px) clamp(18px, 4.2vw, 64px); display: flex; flex-direction: column; justify-content: center; gap: clamp(12px, 2.2vh, 22px); }
+.brand { display: flex; align-items: center; gap: clamp(10px, 1.4vw, 20px); }
+.brand svg { width: clamp(44px, 6.4vw, 92px); height: auto; flex: none; }
+.brand h1 { font-weight: 800; font-stretch: 125%; font-size: clamp(3rem, 8.6vw, 7.75rem); line-height: 0.86; letter-spacing: -0.035em; }
+.lede { font-family: var(--body); font-size: clamp(1.0625rem, 0.5vw + 0.95rem, 1.25rem); line-height: 1.45; max-width: 33rem; }
+
+.ships { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.ships legend { font-size: 0.8125rem; font-weight: 500; font-stretch: 88%; color: var(--dust); margin-bottom: 8px; }
+.ship { position: relative; cursor: pointer; display: block; }
+.ship input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.ship-body { display: grid; gap: 4px; height: 100%; align-content: start; padding: 12px; border: 1px solid var(--hair); border-radius: 3px; background: rgba(10, 14, 23, 0.62); transition: border-color 0.15s, background 0.15s; }
+.ship:hover .ship-body { border-color: var(--bone); }
+.ship input:checked + .ship-body { border-color: var(--lamp); background: rgba(255, 182, 72, 0.1); box-shadow: inset 0 3px 0 var(--lamp); }
+.ship input:focus-visible + .ship-body { outline: 2px solid var(--lamp); outline-offset: 3px; }
+.ship strong { font-weight: 750; font-stretch: 112%; font-size: 1.1875rem; line-height: 1.1; white-space: nowrap; }
+.ship-desc { font-size: 0.8125rem; font-stretch: 92%; line-height: 1.3; color: var(--dust); min-height: 2.6em; }
+.stat { display: grid; grid-template-columns: 3.2em 1fr; align-items: center; gap: 6px; font-size: 0.75rem; font-stretch: 86%; color: var(--dust); }
+.stat i { display: block; height: 4px; background: rgba(237, 231, 218, 0.16); position: relative; }
+.stat i::after { content: ""; position: absolute; inset: 0; width: var(--v); background: var(--bone); }
+.ship input:checked + .ship-body .stat i::after { background: var(--lamp); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; }
+.btn { font-weight: 700; font-stretch: 106%; font-size: 1.0625rem; line-height: 1; padding: 1em 1.5em; background: var(--lamp); color: #1a1205; border: 0; border-radius: 2px; cursor: pointer; transition: transform 0.15s ease, background 0.15s; }
+.btn:hover { background: #ffc76e; transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
+.btn--quiet { background: none; color: var(--bone); padding: 1em 0; text-decoration: underline; text-decoration-color: var(--lamp); text-underline-offset: 6px; text-decoration-thickness: 2px; font-weight: 600; }
+.btn--quiet:hover { background: none; color: var(--lamp); }
+.save-info { font-size: 0.875rem; font-stretch: 94%; color: var(--dust); max-width: 33rem; }
+.save-info:empty { display: none; }
+
+.menu-foot { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--hair); max-width: 36rem; }
+.keys { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 22px; font-size: 0.8125rem; }
+.keys div { display: flex; gap: 8px; align-items: baseline; }
+.keys dt { font-weight: 700; font-stretch: 96%; min-width: 7.6em; white-space: nowrap; }
+.keys dd { color: var(--dust); font-stretch: 92%; }
+.keys-touch { display: none; font-size: 0.875rem; color: var(--dust); }
+.settings { display: flex; flex-wrap: wrap; gap: 8px 26px; align-items: center; font-size: 0.875rem; font-stretch: 94%; }
+.settings label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.settings input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--lamp); margin: 0; }
+.settings input[type="range"] { width: 130px; accent-color: var(--lamp); margin: 0; }
+.fine { font-family: var(--body); font-size: 0.875rem; line-height: 1.4; color: var(--dust); }
+
+/* ---------- HUD ---------- */
+.hud { position: absolute; inset: 0; z-index: 20; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.5s ease, visibility 0.5s; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9), 0 0 2px #000; }
+.playing .hud { opacity: var(--hud); visibility: visible; }
+.hud button, .hud .lever { pointer-events: auto; }
+.hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px var(--gutter) 0; }
+.chip { display: inline-flex; align-items: center; gap: 8px; font-size: 0.875rem; font-weight: 600; font-stretch: 94%; line-height: 1; padding: 9px 12px; border: 1px solid var(--hair); border-radius: 2px; background: rgba(6, 9, 16, 0.55); white-space: nowrap; }
+.chip--btn { cursor: pointer; }
+.hud-left { display: flex; gap: 8px; }
+.chip--ship { border-color: transparent; border-left: 2px solid var(--lamp); background: rgba(6, 9, 16, 0.4); font-weight: 750; font-stretch: 108%; }
+.chip--btn:hover { border-color: var(--bone); }
+
+.compass { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); width: min(420px, 46vw); text-align: center; }
+.compass-win { position: relative; height: 40px; overflow: hidden; border-bottom: 1px solid var(--hair);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); }
+.compass-win::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 2px; height: 14px; margin-left: -1px; background: var(--lamp); }
+.compass-strip { position: absolute; left: 50%; bottom: 0; height: 100%; will-change: transform; }
+.compass-strip i { position: absolute; bottom: 0; width: 1px; height: 5px; background: rgba(237, 231, 218, 0.55); font-style: normal; }
+.compass-strip i.maj { height: 9px; background: var(--bone); }
+.compass-strip i b, .compass-strip i span { position: absolute; bottom: 11px; left: 50%; transform: translateX(-50%); font-size: 0.6875rem; font-weight: 500; color: var(--dust); }
+.compass-strip i b { font-size: 0.8125rem; font-weight: 800; color: var(--bone); }
+.compass-blips { position: absolute; left: 50%; top: 0; }
+.compass-blips i { position: absolute; left: -13px; top: 0; width: 26px; text-align: center; font-style: normal; font-size: 0.6875rem; font-weight: 750; line-height: 14px; color: var(--c); opacity: 0; will-change: transform; }
+.compass-blips i.near { color: #10131a; background: var(--c); border-radius: 2px; text-shadow: none; }
+.compass-blips i[data-v="up"]::after, .compass-blips i[data-v="down"]::after { content: ""; position: absolute; left: 50%; margin-left: -3px; border: 3px solid transparent; }
+.compass-blips i[data-v="up"]::after { top: -5px; border-bottom-color: var(--c); border-top: 0; }
+.compass-blips i[data-v="down"]::after { top: 15px; border-top-color: var(--c); border-bottom: 0; }
+.compass-hdg { display: inline-block; margin-top: 5px; font-size: 0.9375rem; font-weight: 700; font-stretch: 104%; }
+
+.nearest { position: absolute; left: 50%; top: 84px; transform: translateX(-50%); display: flex; align-items: baseline; gap: 10px; white-space: nowrap; font-size: 0.875rem; font-stretch: 92%; color: var(--dust); }
+.nearest strong { font-size: 1.125rem; font-weight: 800; font-stretch: 112%; color: var(--bone); border-bottom: 2px solid var(--world); padding-bottom: 1px; transition: border-color 0.6s; }
+.nearest .num { color: var(--bone); font-weight: 600; font-size: 1rem; }
+
+#labels { position: absolute; inset: 0; overflow: hidden; }
+.wl { position: absolute; left: 0; top: 0; opacity: 0; transition: opacity 0.25s; will-change: transform; white-space: nowrap; font-size: 0.75rem; font-stretch: 90%; line-height: 1.15; padding-left: 9px; border-left: 2px solid var(--c); }
+.wl b { display: block; font-weight: 700; font-size: 0.8125rem; font-stretch: 100%; }
+.wl span { color: var(--dust); font-variant-numeric: tabular-nums; }
+.wl.near b { color: var(--c); }
+
+.speed { position: absolute; left: var(--gutter); bottom: var(--gutter); display: flex; align-items: flex-end; gap: 14px; }
+.speed::before, .coords::before, .approach::before, .nearest::before { content: ""; position: absolute; inset: -22px -34px; z-index: -1; background: radial-gradient(closest-side, rgba(3, 5, 10, 0.62), rgba(3, 5, 10, 0.4) 60%, rgba(3, 5, 10, 0)); pointer-events: none; }
+.thr { width: 10px; display: grid; gap: 3px; }
+.thr-fwd { height: 96px; background: rgba(237, 231, 218, 0.14); display: flex; align-items: flex-end; }
+.thr-back { height: 22px; background: rgba(237, 231, 218, 0.14); display: flex; align-items: flex-start; }
+.thr i { display: block; width: 100%; height: 100%; background: var(--lamp); transform: scaleY(0); transform-origin: bottom; transition: transform 0.12s linear; }
+.thr-back i { background: var(--dust); transform-origin: top; }
+.speed-top { display: flex; align-items: center; gap: 10px; font-size: 0.8125rem; font-stretch: 88%; color: var(--dust); }
+.speed-top b { font-size: 0.6875rem; font-weight: 800; font-stretch: 100%; color: #1a1205; background: var(--lamp); padding: 2px 6px; border-radius: 2px; text-shadow: none; opacity: 0; transition: opacity 0.15s; }
+.speed-top b.on { opacity: 1; }
+.speed-num { display: flex; align-items: baseline; gap: 8px; }
+.speed-num output { font-size: clamp(2.6rem, 5.4vw, 4.5rem); font-weight: 800; font-stretch: 112%; line-height: 0.95; letter-spacing: -0.02em; }
+.speed-num span { font-size: 0.9375rem; font-weight: 600; color: var(--dust); }
+.speed-c { font-size: 0.875rem; font-weight: 600; font-stretch: 96%; color: var(--dust); font-variant-numeric: tabular-nums; }
+
+.coords { position: absolute; right: var(--gutter); bottom: var(--gutter); display: grid; grid-template-columns: repeat(3, auto); gap: 2px 20px; text-align: right; }
+.coords div { display: flex; gap: 7px; align-items: baseline; justify-content: flex-end; border-top: 1px solid var(--hair); padding-top: 6px; min-width: 5.4em; }
+.coords dt { font-size: 0.8125rem; font-weight: 800; color: var(--lamp); }
+.coords dd { font-size: 1.125rem; font-weight: 650; font-stretch: 104%; }
+.coords p { grid-column: 1 / -1; font-size: 0.75rem; font-stretch: 88%; color: var(--dust); }
+
+.approach { position: absolute; right: var(--gutter); bottom: calc(var(--gutter) + 92px); width: min(21rem, 34vw); transform: translate(0, 14px); opacity: 0; transition: opacity 0.5s ease, transform 0.5s ease; text-align: right; }
+.approach.show { opacity: 1; transform: translate(0, 0); }
+.approach h2 { font-weight: 800; font-stretch: 118%; font-size: clamp(1.5rem, 2.6vw, 2.25rem); line-height: 1; letter-spacing: -0.02em; }
+.approach p { font-family: var(--body); font-size: 1rem; line-height: 1.35; margin-top: 6px; }
+.approach dl { display: flex; justify-content: flex-end; gap: 20px; margin-top: 10px; padding-top: 9px; border-top: 2px solid var(--world); }
+.approach dt { font-size: 0.75rem; font-stretch: 88%; color: var(--dust); }
+.approach dd { font-size: 0.9375rem; font-weight: 650; white-space: nowrap; }
+
+.toast { position: absolute; left: 50%; top: 122px; transform: translateX(-50%); max-width: min(92vw, 34rem); text-align: center; font-size: 0.9375rem; font-weight: 600; font-stretch: 96%; padding: 9px 14px; background: rgba(6, 9, 16, 0.78); border: 1px solid var(--hair); border-left: 3px solid var(--lamp); border-radius: 2px; opacity: 0; pointer-events: none; }
+.toast.show { animation: toast 4.6s ease both; }
+@keyframes toast { 0% { opacity: 0; } 8% { opacity: 1; } 82% { opacity: 1; } 100% { opacity: 0; } }
+
+/* steering stick: appears where the drag starts */
+.stick { position: absolute; left: 0; top: 0; width: 96px; height: 96px; margin: -48px 0 0 -48px; border: 1px solid rgba(237, 231, 218, 0.4); border-radius: 50%; opacity: 0; transition: opacity 0.15s; }
+.stick.on { opacity: 1; }
+.stick i { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: var(--lamp); }
+
+.touch { display: none; position: absolute; right: var(--gutter); bottom: 86px; align-items: flex-end; gap: 12px; }
+.lever { position: relative; width: 54px; height: 190px; border: 1px solid var(--hair); border-radius: 3px; background: rgba(6, 9, 16, 0.55); touch-action: none; }
+.lever span { position: absolute; top: -20px; left: 0; right: 0; text-align: center; font-size: 0.75rem; color: var(--dust); }
+.lever::before { content: ""; position: absolute; left: 8px; right: 8px; top: 80%; height: 1px; background: var(--bone); opacity: 0.6; }
+.lever i { position: absolute; left: 4px; right: 4px; top: 80%; height: 20px; margin-top: -10px; background: var(--lamp); border-radius: 2px; }
+.tbtn { width: 62px; height: 62px; border-radius: 50%; border: 1px solid var(--hair); background: rgba(6, 9, 16, 0.55); font-size: 0.8125rem; font-weight: 700; touch-action: none; }
+.tbtn--boost { border-color: var(--lamp); color: var(--lamp); }
+.tbtn:active { background: rgba(255, 182, 72, 0.25); }
+
+
+/* ---------- learning card ---------- */
+.approach { visibility: hidden; }
+.approach.show { visibility: visible; }
+.learn-btn { margin-top: 12px; display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-stretch: 104%; font-size: 0.9375rem; line-height: 1; padding: 10px 14px; color: #1a1205; background: var(--lamp); border: 0; border-radius: 2px; cursor: pointer; text-shadow: none; }
+.learn-btn:hover { background: #ffc76e; }
+.learn-btn kbd { font: inherit; font-size: 0.75rem; font-weight: 800; padding: 2px 6px; border: 1px solid rgba(26, 18, 5, 0.45); border-radius: 2px; }
+.learn { --c: var(--world); position: fixed; z-index: 40; top: 0; right: 0; bottom: 0; width: min(28rem, 100%); overflow-y: auto; overscroll-behavior: contain; padding: 22px 26px 30px; background: rgba(8, 11, 19, 0.93); border-left: 1px solid var(--hair); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); font-family: var(--display); transform: translateX(102%); visibility: hidden; transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1), visibility 0.45s; }
+.learn.open { transform: none; visibility: visible; }
+.learn > * + * { margin-top: 18px; }
+.learn-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.learn-head h2 { font-weight: 800; font-stretch: 118%; font-size: clamp(2.2rem, 4vw, 3rem); line-height: 0.95; letter-spacing: -0.025em; }
+.learn-kind { margin-top: 8px; display: inline-block; font-size: 0.8125rem; font-weight: 700; font-stretch: 96%; color: #10131a; background: var(--c); padding: 4px 9px; border-radius: 2px; }
+.learn-intro { font-family: var(--body); font-size: 1.1875rem; line-height: 1.5; }
+.learn-size { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; padding: 16px 0; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+.learn-size p { font-size: 1rem; font-weight: 550; line-height: 1.35; }
+.balls { display: flex; align-items: flex-end; gap: 14px; min-height: 100px; }
+.balls figure { margin: 0; display: grid; justify-items: center; gap: 6px; }
+.balls i { display: block; border-radius: 50%; background: var(--b); box-shadow: inset -0.16em -0.16em 0.5em rgba(0, 0, 0, 0.55); font-size: 20px; }
+.balls figcaption { font-size: 0.75rem; font-weight: 600; font-stretch: 90%; color: var(--dust); white-space: nowrap; }
+.learn-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 22px; }
+.learn-facts dt { font-size: 0.8125rem; font-stretch: 88%; color: var(--dust); line-height: 1.3; }
+.learn-facts dd { font-size: 1.125rem; font-weight: 650; font-stretch: 102%; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.learn-weight { padding: 16px; background: rgba(237, 231, 218, 0.06); border-left: 3px solid var(--c); border-radius: 2px; display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center; }
+.learn-weight label { font-size: 0.9375rem; font-weight: 600; }
+.kg { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.kg input { width: 4.6em; font: inherit; font-size: 1.0625rem; font-weight: 700; color: var(--bone); background: rgba(3, 5, 10, 0.6); border: 1px solid var(--hair); border-radius: 2px; padding: 7px 8px; text-align: right; }
+.learn-weight p { grid-column: 1 / -1; font-size: 1.0625rem; line-height: 1.35; }
+.learn-weight p b { font-weight: 800; color: var(--c); font-size: 1.25rem; }
+.learn-weight p small { display: block; margin-top: 4px; font-size: 0.8125rem; color: var(--dust); }
+.learn h3 { font-weight: 750; font-stretch: 108%; font-size: 1.125rem; margin-top: 24px; }
+.learn-fun { display: grid; gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.learn-fun li { position: relative; padding-left: 20px; font-family: var(--body); font-size: 1.0625rem; line-height: 1.45; }
+.learn-fun li::before { content: ""; position: absolute; left: 0; top: 0.55em; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.learn .fine:empty { display: none; }
+.learn .btn { margin-top: 22px; }
+
+/* ---------- small and touch screens ---------- */
+@media (pointer: coarse) {
+  .touch { display: flex; }
+  .keys { display: none; }
+  .keys-touch { display: block; }
+  .coords { bottom: auto; top: 118px; grid-template-columns: 1fr; gap: 0; }
+  .coords div { border: 0; padding: 0; }
+  .coords dd { font-size: 0.875rem; }
+  .coords p { display: none; }
+  .approach { bottom: auto; top: 190px; width: min(15rem, 60vw); }
+  .approach p { display: none; }
+  .learn-btn kbd { display: none; }
+  .toast { top: auto; bottom: 300px; }
+}
+@media (max-width: 760px) {
+  .learn { top: auto; left: 0; width: 100%; max-height: 78%; border-left: 0; border-top: 1px solid var(--hair); padding: 18px 18px 26px; transform: translateY(102%); }
+  .learn.open { transform: none; }
+  .learn-intro { font-size: 1.0625rem; }
+  .approach .learn-btn kbd { display: none; }
+  .menu { background: linear-gradient(180deg, rgba(3, 5, 10, 0.15) 0%, rgba(3, 5, 10, 0.2) 22%, rgba(3, 5, 10, 0.9) 46%, rgba(3, 5, 10, 0.95) 100%); }
+  .menu-in { justify-content: flex-end; width: 100%; padding-top: 34vh; }
+  .ships { gap: 6px; }
+  .ship-body { padding: 10px 8px; }
+  .ship strong { font-size: 1rem; font-stretch: 100%; }
+  .ship-desc { font-size: 0.75rem; min-height: 3.9em; }
+  .stat { grid-template-columns: 1fr; gap: 2px; }
+  .compass { width: 52vw; top: 54px; }
+  .nearest { top: 122px; font-size: 0.8125rem; gap: 7px; }
+  .nearest strong { font-size: 1rem; }
+  .coords { top: 156px; }
+  .approach { top: 232px; }
+  .speed-num output { font-size: 2.6rem; }
+  .thr-fwd { height: 70px; }
+  .chip { padding: 8px 10px; font-size: 0.8125rem; }
+}
+@media (max-height: 620px) and (min-width: 761px) {
+  .menu-foot .fine, .lede { display: none; }
+  .brand h1 { font-size: clamp(2.6rem, 6vw, 4.4rem); }
+  .brand svg { width: 48px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #scene, .menu, .hud, .approach, .btn, .learn { transition: none; }
+}
+
+</style>
+</head>
+<body>
+<canvas id="scene" tabindex="-1" aria-label="Pemandangan luar angkasa"></canvas>
+
+<!-- HUD, shown while flying -->
+<div id="hud" class="hud">
+  <div class="hud-top">
+    <div class="hud-left">
+    <button id="btn-menu" class="chip chip--btn" type="button">
+      <svg viewBox="0 0 28 28" width="18" height="18" aria-hidden="true"><circle cx="14" cy="14" r="9.5" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M1 19.5h26" stroke="currentColor" stroke-width="2.4"/><circle cx="21.5" cy="8.5" r="2.4" fill="var(--lamp)"/></svg>
+      Menu
+    </button>
+    <div class="chip chip--ship" id="ship-chip">Keita One</div>
+    </div>
+    <div class="compass" aria-label="Kompas arah">
+      <div class="compass-win">
+        <div class="compass-strip" id="compass-strip"></div>
+        <div class="compass-blips" id="compass-blips"></div>
+      </div>
+      <output class="compass-hdg" id="hdg">000°</output>
+    </div>
+    <div class="chip" id="collection">Dikunjungi 0/14</div>
+  </div>
+
+  <div class="nearest">
+    <span>Terdekat</span>
+    <strong id="near-name">Bumi</strong>
+    <span id="near-dist" class="num">0 km</span>
+  </div>
+
+  <div id="labels" aria-hidden="true"></div>
+
+  <div class="speed" aria-label="Kecepatan">
+    <div class="thr" aria-hidden="true"><div class="thr-fwd"><i id="thr-fill"></i></div><div class="thr-back"><i id="thr-rev"></i></div></div>
+    <div class="speed-read">
+      <div class="speed-top"><span>Kecepatan</span><b id="boost-tag">Boost</b></div>
+      <div class="speed-num"><output id="spd">0</output><span>km/dtk</span></div>
+      <div class="speed-c" id="spd-c">0,00 c</div>
+    </div>
+  </div>
+
+  <dl class="coords" aria-label="Koordinat posisi, dalam ribu kilometer">
+    <div><dt>X</dt><dd id="cx">0,0</dd></div>
+    <div><dt>Y</dt><dd id="cy">0,0</dd></div>
+    <div><dt>Z</dt><dd id="cz">0,0</dd></div>
+    <p>Posisi dari Bumi, ribu km</p>
+  </dl>
+
+  <aside class="approach" id="approach" aria-live="polite">
+    <h2 id="ap-name">Bumi</h2>
+    <p id="ap-line"></p>
+    <dl id="ap-facts"></dl>
+    <button class="learn-btn" id="ap-learn" type="button">Pelajari <span id="ap-learn-name">Bumi</span><kbd>F</kbd></button>
+  </aside>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <!-- steering stick and touch controls -->
+  <div class="stick" id="stick" aria-hidden="true"><i></i></div>
+  <div class="touch">
+    <button type="button" id="t-stop" class="tbtn">Rem</button>
+    <button type="button" id="t-boost" class="tbtn tbtn--boost">Boost</button>
+    <div class="lever" id="lever" aria-label="Tuas gas"><span>Gas</span><i></i></div>
+  </div>
+</div>
+
+<!-- Menu -->
+<div id="menu" class="menu">
+  <div class="menu-in">
+    <div class="brand">
+      <svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="9.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M1 19.5h26" stroke="currentColor" stroke-width="2"/><circle cx="21.5" cy="8.5" r="2.2" fill="var(--lamp)"/></svg>
+      <h1>Farshore</h1>
+    </div>
+    <p class="lede">Terbang bebas melintasi tata surya. Dekati planet mana pun, lihat permukaannya dari dekat, dan lanjutkan kapan saja. Tanpa unduhan, tanpa batas waktu.</p>
+
+    <fieldset class="ships">
+      <legend>Pilih pesawat</legend>
+      <label class="ship">
+        <input type="radio" name="ship" id="ship-01" value="ship_01" checked>
+        <span class="ship-body">
+          <strong>Keita One</strong>
+          <span class="ship-desc">Serba bisa. Stabil dan mudah dikendalikan.</span>
+          <span class="stat">Laju <i style="--v:66%"></i></span>
+          <span class="stat">Lincah <i style="--v:66%"></i></span>
+        </span>
+      </label>
+      <label class="ship">
+        <input type="radio" name="ship" id="ship-02" value="ship_02">
+        <span class="ship-body">
+          <strong>Keita 3</strong>
+          <span class="ship-desc">Tiga mesin. Paling cepat di lintasan lurus.</span>
+          <span class="stat">Laju <i style="--v:100%"></i></span>
+          <span class="stat">Lincah <i style="--v:42%"></i></span>
+        </span>
+      </label>
+      <label class="ship">
+        <input type="radio" name="ship" id="ship-03" value="ship_03">
+        <span class="ship-body">
+          <strong>Keita Fly</strong>
+          <span class="ship-desc">Ringan bersayap kaca. Paling gesit berbelok.</span>
+          <span class="stat">Laju <i style="--v:48%"></i></span>
+          <span class="stat">Lincah <i style="--v:100%"></i></span>
+        </span>
+      </label>
+    </fieldset>
+
+    <div class="actions">
+      <button class="btn" id="btn-continue" type="button" hidden>Lanjutkan petualangan</button>
+      <button class="btn" id="btn-start" type="button">Mulai penjelajahan</button>
+    </div>
+    <p class="save-info" id="save-info"></p>
+
+    <div class="menu-foot">
+      <dl class="keys">
+        <div><dt>W / S</dt><dd>Gas maju / mundur</dd></div>
+        <div><dt>A / D atau ← →</dt><dd>Belok kiri / kanan</dd></div>
+        <div><dt>↑ / ↓</dt><dd>Naik / turun</dd></div>
+        <div><dt>Q / E</dt><dd>Miring kiri / kanan</dd></div>
+        <div><dt>Shift</dt><dd>Boost</dd></div>
+        <div><dt>Spasi</dt><dd>Rem</dd></div>
+        <div><dt>Seret mouse</dt><dd>Arahkan pesawat</dd></div>
+        <div><dt>F</dt><dd>Kartu belajar planet</dd></div>
+        <div><dt>Esc</dt><dd>Menu</dd></div>
+      </dl>
+      <p class="keys-touch">Di layar sentuh: seret di mana saja untuk mengarahkan, geser tuas kanan untuk gas. Dekati planet, lalu ketuk Pelajari untuk membaca tentangnya.</p>
+      <div class="settings">
+        <label class="check"><input type="checkbox" id="set-sound" checked> Suara mesin</label>
+        <label class="check"><input type="checkbox" id="set-learn" checked> Kartu belajar muncul otomatis</label>
+        <label class="range" for="set-hud">Kejelasan HUD <input type="range" id="set-hud" min="0.35" max="1" step="0.05" value="0.8"></label>
+      </div>
+      <p class="fine">Ukuran planet di sini sesuai skala satu sama lain. Jarak antarplanet dipadatkan supaya bisa ditempuh dalam hitungan menit. Posisi tersimpan otomatis di browser ini.</p>
+    </div>
+  </div>
+</div>
+
+<section class="learn" id="learn" aria-labelledby="learn-name">
+  <header class="learn-head">
+    <div>
+      <h2 id="learn-name">Bumi</h2>
+      <p class="learn-kind" id="learn-kind">Planet batuan</p>
+    </div>
+    <button class="chip chip--btn" id="learn-close" type="button">Tutup</button>
+  </header>
+  <p class="learn-intro" id="learn-intro"></p>
+  <div class="learn-size" id="learn-size">
+    <div class="balls" id="learn-balls" aria-hidden="true"></div>
+    <p id="learn-size-text"></p>
+  </div>
+  <dl class="learn-facts" id="learn-facts"></dl>
+  <div class="learn-weight" id="learn-weight">
+    <label for="learn-kg">Berapa beratmu di Bumi?</label>
+    <div class="kg"><input id="learn-kg" type="number" inputmode="numeric" min="1" max="300" step="1" value="30"><span>kg</span></div>
+    <p id="learn-weight-out"></p>
+  </div>
+  <h3>Tahukah kamu?</h3>
+  <ul class="learn-fun" id="learn-fun"></ul>
+  <p class="fine" id="learn-note"></p>
+  <button class="btn" id="learn-go" type="button">Lanjut terbang</button>
+</section>
+
+<p class="nogl">Browser ini tidak bisa menjalankan WebGL, jadi pemandangan 3D tidak tampil. Coba buka di Chrome, Edge, Firefox, atau Safari versi terbaru.</p>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* ------------------------------------------------------------------ */
+/* Small maths helpers                                                 */
+/* ------------------------------------------------------------------ */
+const V3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+const smoother = (t) => { t = clamp(t); return t * t * t * (t * (t * 6 - 15) + 10); };
+const easeOut = (t) => 1 - Math.pow(1 - clamp(t), 3);
+const DEG = Math.PI / 180;
+const dirFrom = (azDeg, elDeg) => V3(Math.sin(azDeg * DEG) * Math.cos(elDeg * DEG), Math.sin(elDeg * DEG), Math.cos(azDeg * DEG) * Math.cos(elDeg * DEG));
+const params = new URLSearchParams(location.search);
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const COARSE = window.matchMedia('(pointer: coarse)').matches;
+
+function mulberry(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* GLSL leaves smoothstep() undefined when the first edge is the larger one, and pow() undefined for
+   negative bases. Software renderers forgive both; real GPUs can return NaN, which bloom then smears
+   into black boxes. Every shader written here gets a well-defined smoothstep instead. */
+const SAFE_STEP = 'float sstep(float a, float b, float x){ float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }\n';
+THREE.ShaderMaterial.prototype.onBeforeCompile = function (shader) {
+  for (const key of ['vertexShader', 'fragmentShader']) {
+    const src = shader[key];
+    if (src.includes('smoothstep(') && !src.includes('#include') && !src.includes('sstep(')) { shader[key] = SAFE_STEP + src.replace(/smoothstep\(/g, 'sstep('); globalThis.__sstep = (globalThis.__sstep || 0) + 1; }
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Shared GLSL: integer-hash gradient noise, fbm, crater fields        */
+/* ------------------------------------------------------------------ */
+const GLSL_NOISE = /* glsl */`
+uvec3 pcg3(uvec3 v){
+  v = v * 1664525u + 1013904223u;
+  v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+  v ^= v >> 16u;
+  v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+  return v;
+}
+vec3 hash3(vec3 p){
+  uvec3 u = pcg3(uvec3(ivec3(floor(p)) + 100000));
+  return vec3(u) * (1.0 / 4294967295.0);
+}
+float gdot(vec3 i, vec3 f, vec3 o){ return dot(hash3(i + o) * 2.0 - 1.0, f - o); }
+float gnoise(vec3 p){
+  vec3 i = floor(p), f = p - i;
+  vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  float a = gdot(i, f, vec3(0,0,0)), b = gdot(i, f, vec3(1,0,0));
+  float c = gdot(i, f, vec3(0,1,0)), d = gdot(i, f, vec3(1,1,0));
+  float e = gdot(i, f, vec3(0,0,1)), g = gdot(i, f, vec3(1,0,1));
+  float h = gdot(i, f, vec3(0,1,1)), k = gdot(i, f, vec3(1,1,1));
+  return mix(mix(mix(a, b, u.x), mix(c, d, u.x), u.y), mix(mix(e, g, u.x), mix(h, k, u.x), u.y), u.z) * 1.2;
+}
+float fbm(vec3 p, int oct){
+  float s = 0.0, a = 0.5;
+  for (int n = 0; n < oct; n++) { s += a * gnoise(p); p = p * 2.03 + vec3(17.1, 9.2, 5.3); a *= 0.5; }
+  return s;
+}
+float ridged(vec3 p, int oct){
+  float s = 0.0, a = 0.5;
+  for (int n = 0; n < oct; n++) { float r = 1.0 - abs(gnoise(p)) * 1.7; s += a * r * r; p = p * 2.07 + vec3(3.1, 7.7, 1.3); a *= 0.5; }
+  return s;
+}
+// One octave of impact craters. Returns height change; ej gets bright ejecta.
+float craterField(vec3 p, float freq, float seed, float density, out float ej){
+  vec3 q = p * freq + seed;
+  vec3 i = floor(q), f = q - i;
+  float hsum = 0.0; ej = 0.0;
+  for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) for (int z = -1; z <= 1; z++) {
+    vec3 o = vec3(float(x), float(y), float(z));
+    vec3 r = hash3(i + o);
+    float present = step(1.0 - density, fract(r.z * 5.31 + r.x * 3.17));
+    float rad = 0.16 + 0.30 * fract(r.x * 7.13 + r.y * 3.71);
+    float d = length(o + r - f) / rad;
+    float bowl = d < 1.0 ? (d * d - 1.0) * 0.7 : 0.0;
+    float rd = (d - 1.0) * 4.5;
+    float rim = exp(-rd * rd) * 0.32;
+    hsum += present * (bowl + rim) * rad;
+    ej += present * exp(-max(d - 1.0, 0.0) * 2.2) * step(1.0, d) * rad * step(0.6, r.y);
+  }
+  return hsum;
+}
+`;
+
+// Matches THREE.SphereGeometry's uv -> direction mapping
+const GLSL_DIR = /* glsl */`
+vec3 uvToDir(vec2 uv){
+  float th = (1.0 - uv.y) * 3.14159265359;
+  float ph = uv.x * 6.28318530718;
+  float s = sin(th);
+  return vec3(-cos(ph) * s, cos(th), sin(ph) * s);
+}
+`;
+
+/* ------------------------------------------------------------------ */
+/* Planet surfaces are generated on the GPU once, into equirect maps   */
+/* ------------------------------------------------------------------ */
+const BAKE = {
+  earth: /* glsl */`
+    vec3 w = vec3(fbm(p * 1.3 + 11.0, 4), fbm(p * 1.3 + 27.0, 4), fbm(p * 1.3 + 43.0, 4));
+    float h = 0.5 + 0.62 * fbm(p * 1.25 + w * 0.9, 9) - 0.045;
+    h += 0.05 * (ridged(p * 3.0 + 9.0, 5) - 0.45) * smoothstep(0.48, 0.6, h);
+    float moist = clamp(0.5 + 1.3 * fbm(p * 2.3 + 70.0, 5), 0.0, 1.0);
+    vec3 cw = vec3(fbm(p * 2.0 + 5.0, 4), fbm(p * 2.0 + 15.0, 4), fbm(p * 2.0 + 25.0, 4));
+    float lat = asin(clamp(p.y, -1.0, 1.0));
+    float c = 0.5 + 0.95 * fbm(vec3(p.x, p.y * 1.6, p.z) * 4.6 + cw * 1.9, 9);
+    float belt = 0.5 + 0.5 * cos(lat * 5.6);
+    c = c * (0.78 + 0.36 * belt) + 0.05 * (1.0 - smoothstep(0.45, 0.55, h));
+    float pop = smoothstep(0.50, 0.53, h) * (1.0 - smoothstep(0.60, 0.70, h));
+    pop *= smoothstep(0.42, 0.62, 0.5 + 1.4 * fbm(p * 6.0 + 90.0, 4));
+    pop *= 1.0 - smoothstep(0.72, 0.92, abs(p.y));
+    pop *= 0.35 + 0.65 * moist;
+    gl_FragColor = vec4(clamp(h, 0.0, 1.0), moist, clamp(c, 0.0, 1.0), clamp(pop, 0.0, 1.0));
+  `,
+  moon: /* glsl */`
+    float e1, e2, e3, e4, e5;
+    float hgt = 0.0;
+    hgt += craterField(p, 3.0, 1.7, 0.55, e1) * 1.0;
+    hgt += craterField(p, 7.0, 5.1, 0.6, e2) * 0.55;
+    hgt += craterField(p, 16.0, 9.3, 0.7, e3) * 0.3;
+    hgt += craterField(p, 37.0, 2.9, 0.75, e4) * 0.16;
+    hgt += craterField(p, 80.0, 7.7, 0.8, e5) * 0.09;
+    float rough = fbm(p * 6.0, 7);
+    float mariaN = fbm(p * 1.1 + 3.0, 5) + 0.25 * fbm(p * 4.0, 4);
+    float maria = smoothstep(0.02, 0.16, mariaN + 0.12 * p.x);
+    float alb = mix(0.30, 0.105, maria);
+    alb += (e1 * 0.5 + e2 * 0.55 + e3 * 0.5) * mix(0.9, 0.5, maria);
+    alb *= 1.0 + 0.5 * rough + 0.25 * fbm(p * 30.0, 4);
+    alb = clamp(alb, 0.02, 0.8);
+    vec3 col = alb * vec3(1.0, 0.975, 0.94);
+    float hh = 0.5 + hgt * (1.0 - 0.6 * maria) * 1.1 + rough * 0.10 - maria * 0.03;
+    gl_FragColor = vec4(sqrt(col), clamp(hh, 0.0, 1.0));
+  `,
+  mars: /* glsl */`
+    float e1, e2, e3;
+    float n1 = fbm(p * 1.3 + 3.0, 6);
+    float n2 = fbm(p * 4.0 + n1 * 2.0, 7);
+    float n3 = fbm(p * 14.0, 5);
+    float dark = smoothstep(0.0, 0.22, n1 * 1.2 + 0.35 * n2 - 0.12 * abs(p.y) - 0.02);
+    vec3 col = mix(vec3(0.50, 0.22, 0.09), vec3(0.76, 0.44, 0.22), clamp(0.55 + 1.6 * n2, 0.0, 1.0));
+    col = mix(col, vec3(0.17, 0.09, 0.065), dark * 0.78);
+    col *= 1.0 + 0.35 * n3;
+    float lon = atan(p.z, -p.x);
+    float cy = p.y + 0.14 + 0.05 * fbm(p * 5.0 + 20.0, 4);
+    float canyon = exp(-cy * cy * 2600.0) * smoothstep(0.25, 0.55, lon) * (1.0 - smoothstep(1.25, 1.6, lon));
+    col = mix(col, vec3(0.13, 0.06, 0.04), canyon * 0.8);
+    float hgt = 0.5 + 0.34 * fbm(p * 2.6 + 8.0, 9) + 0.10 * (ridged(p * 5.0, 5) - 0.5);
+    hgt += craterField(p, 9.0, 3.3, 0.35, e1) * 0.5 + craterField(p, 22.0, 8.1, 0.45, e2) * 0.3 + craterField(p, 50.0, 4.4, 0.5, e3) * 0.15;
+    hgt -= canyon * 0.16;
+    // Tharsis-like volcano bulges
+    vec3 vdir = normalize(vec3(-0.55, 0.28, 0.78));
+    float vd = acos(clamp(dot(p, vdir), -1.0, 1.0));
+    hgt += 0.13 * exp(-vd * vd * 380.0) - 0.05 * exp(-vd * vd * 9000.0);
+    float cap = smoothstep(0.80, 0.86, abs(p.y) + 0.07 * fbm(p * 7.0, 5) + 0.02 * n3);
+    col = mix(col, vec3(0.90, 0.88, 0.86), cap);
+    gl_FragColor = vec4(sqrt(clamp(col, 0.0, 1.0)), clamp(hgt, 0.0, 1.0));
+  `,
+  jupiter: /* glsl */`
+    float lat = asin(clamp(p.y, -1.0, 1.0));
+    float lon = atan(p.z, -p.x);
+    vec2 g = vec2(lon - 0.9, lat + 0.38); g.x *= cos(lat);
+    float gd = length(g / vec2(0.21, 0.115));
+    vec3 q = vec3(p.x, p.y * 3.4, p.z);
+    float warp = fbm(q * 6.5 + 4.0, 5);
+    float turb = fbm(q * 3.0 + warp * 1.7, 7);
+    float y = lat + turb * 0.085 * (1.0 - 0.5 * abs(p.y));
+    y += 0.07 * exp(-gd * gd * 0.45) * (g.y > 0.0 ? 1.0 : -1.0) * smoothstep(0.7, 1.3, gd);
+    float b = 0.5 + 0.5 * sin(y * 13.0 + 1.3 * sin(y * 5.0 + 0.7));
+    float bs = smoothstep(0.18, 0.82, b);
+    vec3 zone = vec3(0.86, 0.79, 0.66), belt = vec3(0.50, 0.28, 0.16), mid = vec3(0.70, 0.50, 0.33);
+    vec3 col = mix(belt, zone, bs);
+    col = mix(col, mid, 0.38 * (0.5 + 0.5 * sin(y * 31.0 + 2.0)));
+    float fine = fbm(vec3(p.x * 2.5, y * 46.0, p.z * 2.5), 6);
+    col *= 1.0 + 0.55 * fine;
+    float edge = 1.0 - abs(bs * 2.0 - 1.0);
+    float curl = fbm(q * 15.0 + warp * 3.0, 5);
+    col = mix(col, vec3(0.93, 0.88, 0.80), edge * smoothstep(0.02, 0.28, curl) * 0.55);
+    col = mix(col, vec3(0.30, 0.20, 0.16), edge * smoothstep(0.05, 0.3, -curl) * 0.4);
+    col = mix(col, vec3(0.40, 0.42, 0.47), smoothstep(0.95, 1.45, abs(lat)) * 0.8);
+    float ang = atan(g.y, g.x) + (1.0 - min(gd, 1.0)) * 5.0;
+    float sw = 0.5 + 0.5 * sin(ang * 2.0 + gd * 9.0 + warp * 4.0);
+    vec3 grs = mix(vec3(0.62, 0.22, 0.10), vec3(0.80, 0.42, 0.25), sw);
+    col = mix(col, grs, smoothstep(1.0, 0.72, gd));
+    col = mix(col, vec3(0.9, 0.84, 0.74), smoothstep(1.35, 1.0, gd) * smoothstep(0.85, 1.0, gd) * 0.5);
+    gl_FragColor = vec4(sqrt(clamp(col, 0.0, 1.0)), 0.5);
+  `,
+  saturn: /* glsl */`
+    float lat = asin(clamp(p.y, -1.0, 1.0));
+    vec3 q = vec3(p.x, p.y * 4.0, p.z);
+    float turb = fbm(q * 2.6 + fbm(q * 6.0, 4) * 1.2, 6);
+    float y = lat + turb * 0.03;
+    float b = 0.5 + 0.5 * sin(y * 19.0 + 1.1 * sin(y * 7.0 + 0.4));
+    vec3 a = vec3(0.86, 0.74, 0.52), c2 = vec3(0.70, 0.56, 0.36), c3 = vec3(0.93, 0.85, 0.66);
+    vec3 col = mix(c2, a, smoothstep(0.1, 0.9, b));
+    col = mix(col, c3, 0.45 * (0.5 + 0.5 * sin(y * 43.0 + 1.0)) * smoothstep(0.9, 0.2, abs(lat)));
+    col *= 1.0 + 0.3 * fbm(vec3(p.x * 2.0, y * 60.0, p.z * 2.0), 5);
+    col = mix(col, vec3(0.50, 0.52, 0.50), smoothstep(1.0, 1.5, abs(lat)) * 0.75);
+    gl_FragColor = vec4(sqrt(clamp(col, 0.0, 1.0)), 0.5);
+  `,
+  neptune: /* glsl */`
+    float lat = asin(clamp(p.y, -1.0, 1.0));
+    float lon = atan(p.z, -p.x);
+    vec3 q = vec3(p.x, p.y * 3.0, p.z);
+    float turb = fbm(q * 2.4 + 2.0, 6);
+    float y = lat + turb * 0.05;
+    float b = 0.5 + 0.5 * sin(y * 9.0 + 0.8 * sin(y * 4.0));
+    vec3 col = mix(vec3(0.045, 0.13, 0.46), vec3(0.10, 0.27, 0.70), smoothstep(0.0, 1.0, b));
+    col = mix(col, vec3(0.16, 0.40, 0.80), 0.35 * smoothstep(0.4, 0.0, abs(lat + 0.1)));
+    col *= 1.0 + 0.35 * fbm(vec3(p.x * 2.0, y * 30.0, p.z * 2.0), 5);
+    vec2 g = vec2(lon - 1.4, lat + 0.36); g.x *= cos(lat);
+    float gd = length(g / vec2(0.2, 0.1));
+    col = mix(col, vec3(0.02, 0.05, 0.22), smoothstep(1.0, 0.5, gd) * 0.85);
+    float cirrus = smoothstep(0.16, 0.36, fbm(vec3(p.x * 3.0, y * 34.0, p.z * 3.0) + 7.0, 6));
+    float cb1 = (lat + 0.47) * 9.0, cb2 = (lat - 0.42) * 10.0;
+    float cband = exp(-cb1 * cb1) + exp(-cb2 * cb2) * 0.7 + smoothstep(1.5, 1.0, gd) * smoothstep(0.9, 1.1, gd);
+    col = mix(col, vec3(0.80, 0.88, 1.0), clamp(cirrus * cband, 0.0, 1.0) * 0.75);
+    gl_FragColor = vec4(sqrt(clamp(col, 0.0, 1.0)), 0.5);
+  `,
+  venus: /* glsl */`
+    float lat = asin(clamp(p.y, -1.0, 1.0));
+    vec3 q = vec3(p.x, p.y * 2.2, p.z);
+    float w = fbm(q * 2.0 + 3.0, 5);
+    float sw = fbm(q * 3.2 + vec3(w * 2.5, abs(lat) * 3.0, w * 2.5), 7);
+    float y = lat + sw * 0.14;
+    float b = 0.5 + 0.5 * sin(y * 7.0 + 2.2 * w);
+    vec3 col = mix(vec3(0.70, 0.52, 0.27), vec3(0.93, 0.84, 0.62), smoothstep(0.1, 0.9, b));
+    col *= 1.0 + 0.4 * fbm(vec3(p.x * 3.0, y * 24.0, p.z * 3.0), 5);
+    col = mix(col, vec3(0.88, 0.82, 0.70), smoothstep(1.0, 1.45, abs(lat)) * 0.5);
+    gl_FragColor = vec4(sqrt(clamp(col, 0.0, 1.0)), 0.5);
+  `,
+  uranus: /* glsl */`
+    float lat = asin(clamp(p.y, -1.0, 1.0));
+    float turb = fbm(vec3(p.x, p.y * 3.0, p.z) * 2.0, 5);
+    float y = lat + turb * 0.03;
+    float b = 0.5 + 0.5 * sin(y * 8.0);
+    vec3 col = mix(vec3(0.36, 0.66, 0.74), vec3(0.54, 0.82, 0.86), b * 0.6);
+    col = mix(col, vec3(0.72, 0.90, 0.90), smoothstep(0.6, 1.4, lat) * 0.55);
+    col *= 1.0 + 0.14 * fbm(vec3(p.x * 2.0, y * 30.0, p.z * 2.0), 4);
+    gl_FragColor = vec4(sqrt(clamp(col, 0.0, 1.0)), 0.5);
+  `,
+  sky: /* glsl */`
+    vec3 d = p;
+    vec3 gn = normalize(vec3(0.42, 0.78, -0.46));
+    vec3 gc = normalize(cross(gn, vec3(0.0, 0.0, 1.0)));
+    float b = dot(d, gn);
+    float toCore = 0.5 + 0.5 * dot(d, gc);
+    float band = exp(-b * b * mix(26.0, 9.0, toCore * toCore));
+    float cloud = 0.5 + 1.1 * fbm(d * 3.5 + 2.0, 7);
+    float dust = smoothstep(0.35, 0.75, 0.5 + 1.3 * fbm(d * 7.0 + vec3(0.0, b * 20.0, 0.0), 6)) * exp(-b * b * 120.0);
+    float lum = band * (0.25 + 0.75 * cloud) * (0.35 + 0.65 * toCore) * (1.0 - 0.8 * dust);
+    vec3 col = mix(vec3(0.32, 0.42, 0.75), vec3(0.95, 0.72, 0.50), toCore * toCore) * lum * 0.085;
+    // two emission nebulae off the galactic plane
+    vec3 n1 = normalize(vec3(-0.35, 0.25, 0.9));
+    float a1 = max(dot(d, n1), 0.0);
+    float f1 = max(0.5 + 1.5 * fbm(d * 4.0 + 20.0 + fbm(d * 9.0, 4) * 0.8, 7), 0.0);
+    col += vec3(0.60, 0.10, 0.34) * pow(a1, 7.0) * f1 * f1 * 0.16;
+    col += vec3(0.08, 0.34, 0.52) * pow(a1, 12.0) * smoothstep(0.25, 0.85, 0.5 + 1.4 * fbm(d * 6.5 + 31.0, 6)) * 0.14;
+    vec3 n2 = normalize(vec3(0.75, -0.45, -0.48));
+    float a2 = max(dot(d, n2), 0.0);
+    float f2 = max(0.5 + 1.5 * fbm(d * 3.4 + 47.0 + fbm(d * 8.0 + 5.0, 4), 7), 0.0);
+    col += vec3(0.10, 0.36, 0.44) * pow(a2, 6.0) * f2 * f2 * 0.13;
+    col += vec3(0.42, 0.20, 0.55) * pow(a2, 10.0) * smoothstep(0.3, 0.9, f2) * 0.10;
+    gl_FragColor = vec4(sqrt(clamp(col * 3.0, 0.0, 1.0)), 1.0);
+  `,
+};
+BAKE.mercury = 'p = vec3(p.z, -p.x, p.y);' + BAKE.moon;
+
+const _bakeScene = new THREE.Scene();
+const _bakeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const _bakeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+_bakeScene.add(_bakeQuad);
+
+function bakePlanet(renderer, kind, width) {
+  const rt = new THREE.WebGLRenderTarget(width, width / 2, {
+    type: THREE.UnsignedByteType,
+    format: THREE.RGBAFormat,
+    colorSpace: THREE.NoColorSpace,
+    generateMipmaps: true,
+    minFilter: THREE.LinearMipmapLinearFilter,
+    magFilter: THREE.LinearFilter,
+    wrapS: THREE.RepeatWrapping,
+    wrapT: THREE.ClampToEdgeWrapping,
+    depthBuffer: false,
+  });
+  rt.texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `precision highp float; precision highp int; varying vec2 vUv;\n${GLSL_NOISE}\n${GLSL_DIR}\nvoid main(){ vec3 p = uvToDir(vUv);\n${BAKE[kind]}\n}`,
+    depthTest: false, depthWrite: false,
+  });
+  _bakeQuad.material = mat;
+  const prev = renderer.getRenderTarget();
+  renderer.setRenderTarget(rt);
+  renderer.render(_bakeScene, _bakeCam);
+  renderer.setRenderTarget(prev);
+  mat.dispose();
+  return rt.texture;
+}
+
+// White-noise tile: bilinear + mipmapped sampling turns it into cheap detail noise at runtime
+function makeNoiseTexture() {
+  const n = 256, rnd = mulberry(77), data = new Uint8Array(n * n * 4);
+  for (let i = 0; i < data.length; i++) data[i] = (rnd() * 256) | 0;
+  const tex = new THREE.DataTexture(data, n, n, THREE.RGBAFormat);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true; tex.needsUpdate = true;
+  return tex;
+}
+
+// Saturn's rings as a radial strip. x: 0 = inner C ring (1.239 R) .. 1 = outer A ring (2.269 R)
+function makeRingTexture() {
+  const n = 2048, rnd = mulberry(1610), data = new Uint8Array(n * 4);
+  const lattice = (count) => Array.from({ length: count + 2 }, () => rnd());
+  const l1 = lattice(40), l2 = lattice(160), l3 = lattice(700);
+  const vn = (l, x) => { const f = x * (l.length - 2); const i = Math.floor(f), t = f - i; const u = t * t * (3 - 2 * t); return lerp(l[i], l[i + 1], u); };
+  for (let i = 0; i < n; i++) {
+    const x = i / (n - 1);
+    const fine = 0.5 * vn(l1, x) + 0.3 * vn(l2, x) + 0.2 * vn(l3, x);
+    let a, tone;
+    if (x < 0.28) { a = 0.10 + 0.22 * (x / 0.28) * (0.5 + fine); tone = 0.55; }            // C ring
+    else if (x < 0.69) { a = 0.72 + 0.28 * fine; tone = 0.86 + 0.14 * fine; }                 // B ring
+    else if (x < 0.765) { a = 0.04 + 0.06 * fine; tone = 0.5; }                               // Cassini Division
+    else { a = 0.42 + 0.3 * fine; tone = 0.74 + 0.1 * fine; }                                 // A ring
+    if (Math.abs(x - 0.947) < 0.005) a *= 0.08;                                               // Encke gap
+    a *= smooth(0, 0.015, x) * smooth(1, 0.985, x);
+    a *= 0.75 + 0.5 * vn(l3, x);
+    const warm = 0.9 + 0.1 * vn(l1, 1 - x);
+    data[i * 4] = Math.round(clamp(tone) * 255);
+    data[i * 4 + 1] = Math.round(clamp(tone * 0.9 * warm) * 255);
+    data[i * 4 + 2] = Math.round(clamp(tone * 0.72 * warm) * 255);
+    data[i * 4 + 3] = Math.round(clamp(a) * 255);
+  }
+  const tex = new THREE.DataTexture(data, n, 1, THREE.RGBAFormat);
+  tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true; tex.needsUpdate = true;
+  return tex;
+}
+
+/* ------------------------------------------------------------------ */
+/* Planet runtime materials                                            */
+/* ------------------------------------------------------------------ */
+const PLANET_VERT = /* glsl */`
+varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vO;
+void main(){
+  vUv = uv; vO = position;
+  vN = normalize(normalMatrix * normal);
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vV = mv.xyz;
+  gl_Position = projectionMatrix * mv;
+}`;
+
+const BUMP_FN = /* glsl */`
+vec3 bumpNormal(vec3 N, vec3 P, float h0, float hx, float hy, float scale){
+  vec3 sx = dFdx(P), sy = dFdy(P);
+  vec3 r1 = cross(sy, N), r2 = cross(N, sx);
+  float det = dot(sx, r1);
+  vec3 grad = sign(det) * ((hx - h0) * r1 + (hy - h0) * r2) * scale;
+  vec3 nb = abs(det) * N - grad;
+  return dot(nb, nb) > 1e-24 ? normalize(nb) : N;
+}`;
+
+const EARTH_FRAG = /* glsl */`
+precision highp float;
+uniform sampler2D uData; uniform sampler2D uNoise;
+uniform vec3 uSunV; uniform vec3 uSunCol; uniform float uCloudShift; uniform float uRadius;
+varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vO;
+${BUMP_FN}
+float det(vec2 uv, float k){ return texture2D(uNoise, uv * vec2(2.0, 1.0) * k).r; }
+void main(){
+  vec3 N = normalize(vN), V = normalize(-vV);
+  vec4 d = texture2D(uData, vUv);
+  float dn = det(vUv, 23.0) * 0.5 + det(vUv + 0.31, 71.0) * 0.3 + det(vUv + 0.7, 190.0) * 0.2;
+  float h = d.r + (dn - 0.5) * 0.035;
+  float land = smoothstep(0.497, 0.503, h);
+  float lat = abs(vUv.y - 0.5) * 2.0;
+  vec3 ocean = mix(vec3(0.004, 0.018, 0.07), vec3(0.01, 0.07, 0.15), smoothstep(0.36, 0.5, h));
+  float arid = smoothstep(0.55, 0.2, d.g + (dn - 0.5) * 0.3) * smoothstep(0.75, 0.1, abs(lat - 0.28));
+  vec3 veg = mix(vec3(0.035, 0.085, 0.025), vec3(0.09, 0.13, 0.045), dn);
+  vec3 dry = mix(vec3(0.36, 0.26, 0.15), vec3(0.23, 0.16, 0.10), dn);
+  vec3 ground = mix(veg, dry, arid);
+  ground = mix(ground, vec3(0.20, 0.18, 0.16), smoothstep(0.60, 0.70, h));
+  ground = mix(ground, vec3(0.75), smoothstep(0.69, 0.76, h + lat * 0.08));
+  float ice = smoothstep(0.80, 0.86, lat + (dn - 0.5) * 0.08 + (h - 0.5) * 0.25);
+  vec3 surf = mix(ocean, ground, land);
+  surf = mix(surf, vec3(0.80, 0.84, 0.88), ice);
+
+  // clouds, eroded with tiled detail so they stay crisp from low orbit
+  vec2 cuv = vUv + vec2(uCloudShift, 0.0);
+  float cb = texture2D(uData, cuv).b;
+  float cdn = det(cuv, 17.0) * 0.6 + det(cuv + 0.4, 59.0) * 0.4;
+  float cloud = smoothstep(0.46, 0.70, cb + (cdn - 0.5) * 0.26);
+  float cb2 = texture2D(uData, cuv + vec2(0.004, 0.002)).b;
+  float shadow = smoothstep(0.46, 0.70, cb2 + (cdn - 0.5) * 0.26);
+
+  vec3 Nb = N;
+  float ndl = dot(Nb, uSunV);
+  float day = smoothstep(-0.10, 0.22, ndl);
+  float diff = max(ndl, 0.0) * 0.92 + day * 0.08;
+  vec3 col = surf * (1.0 - shadow * 0.45 * (1.0 - cloud));
+  // ocean glint
+  vec3 H = normalize(uSunV + V);
+  float spec = pow(clamp(dot(Nb, H), 0.0001, 1.0), 220.0) * (1.0 - land) * (1.0 - cloud) * 0.9;
+  col = mix(col, vec3(0.86, 0.88, 0.92), cloud);
+  col = col * diff * uSunCol + spec * uSunCol;
+  // air: bluer and brighter toward the limb, warm at the terminator
+  float fres = pow(clamp(1.0 - dot(N, V), 0.0, 1.0), 4.5);
+  vec3 air = mix(vec3(1.0, 0.36, 0.10), vec3(0.20, 0.46, 1.0), smoothstep(-0.02, 0.22, ndl));
+  col += air * fres * smoothstep(-0.09, 0.12, ndl) * 0.85;
+  col = mix(col, col * vec3(0.8, 0.9, 1.08), 0.3 * (1.0 - cloud));
+  // city lights on the night side
+  float spark = smoothstep(0.62, 0.9, det(vUv + 0.13, 271.0) * 0.6 + det(vUv + 0.57, 823.0) * 0.4 + d.a * 0.32);
+  float glowN = d.a * det(vUv + 0.9, 61.0);
+  vec3 lights = vec3(1.0, 0.62, 0.26) * (spark * d.a * 2.6 + glowN * 0.25) * land * (1.0 - cloud * 0.85);
+  col += lights * (1.0 - smoothstep(-0.14, 0.02, ndl));
+  col += vec3(0.002, 0.004, 0.009) * (1.0 - day);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+const PLANET_FRAG = /* glsl */`
+precision highp float;
+uniform sampler2D uMap; uniform sampler2D uNoise;
+uniform vec3 uSunV; uniform vec3 uSunCol; uniform vec3 uAtmo; uniform float uAtmoAmt; uniform float uAtmoPow;
+uniform float uBump; uniform float uTerm; uniform float uDetail; uniform float uLimb; uniform float uShift; uniform vec3 uSunO;
+#ifdef RINGS
+uniform sampler2D uRing; uniform vec2 uRingR;
+#endif
+#ifdef MOONSHADOW
+uniform vec3 uMoonO; uniform float uMoonR;
+#endif
+varying vec2 vUv; varying vec3 vN; varying vec3 vV; varying vec3 vO;
+${BUMP_FN}
+void main(){
+  vec3 N = normalize(vN), V = normalize(-vV);
+  vec2 uv = vUv + vec2(uShift, 0.0);
+  vec4 t = texture2D(uMap, uv);
+  vec3 alb = t.rgb * t.rgb;
+  float dn = texture2D(uNoise, uv * vec2(46.0, 23.0)).r * 0.6 + texture2D(uNoise, uv * vec2(210.0, 105.0)).g * 0.4;
+  alb *= 1.0 + uDetail * (dn - 0.5);
+  #ifdef GAS
+    float st = texture2D(uNoise, uv * vec2(9.0, 150.0)).b * 0.6 + texture2D(uNoise, uv * vec2(31.0, 610.0)).a * 0.4;
+    alb *= 1.0 + 0.3 * (st - 0.5);
+  #endif
+  #ifdef BUMP
+    float h0 = t.a + (dn - 0.5) * 0.02 * uDetail;
+    vec2 dx = dFdx(uv), dy = dFdy(uv);
+    float hx = texture2D(uMap, uv + dx).a + (texture2D(uNoise, (uv + dx) * vec2(46.0, 23.0)).r * 0.6 + texture2D(uNoise, (uv + dx) * vec2(210.0, 105.0)).g * 0.4 - 0.5) * 0.02 * uDetail;
+    float hy = texture2D(uMap, uv + dy).a + (texture2D(uNoise, (uv + dy) * vec2(46.0, 23.0)).r * 0.6 + texture2D(uNoise, (uv + dy) * vec2(210.0, 105.0)).g * 0.4 - 0.5) * 0.02 * uDetail;
+    vec3 Nb = bumpNormal(N, vV, h0, hx, hy, uBump);
+  #else
+    vec3 Nb = N;
+  #endif
+  float ndl = dot(Nb, uSunV);
+  float ndl0 = dot(N, uSunV);
+  float lit = clamp((ndl + uTerm) / (1.0 + uTerm), 0.0, 1.0) * smoothstep(-uTerm - 0.02, 0.06, ndl0);
+  float limb = mix(1.0, 0.35 + 0.65 * pow(clamp(dot(N, V), 0.0001, 1.0), 0.55), uLimb);
+  float sh = 1.0;
+  #ifdef RINGS
+    float tt = -vO.y / uSunO.y;
+    if (tt > 0.0) {
+      vec3 hp = vO + uSunO * tt;
+      float rr = length(hp.xz);
+      float x = (rr - uRingR.x) / (uRingR.y - uRingR.x);
+      if (x > 0.0 && x < 1.0) sh *= 1.0 - texture2D(uRing, vec2(x, 0.5)).a * 0.82;
+    }
+  #endif
+  #ifdef MOONSHADOW
+    vec3 mo = uMoonO - vO;
+    float along = dot(mo, uSunO);
+    float miss = length(mo - uSunO * along);
+    sh *= 1.0 - step(0.0, along) * smoothstep(uMoonR * 1.35, uMoonR * 0.75, miss) * 0.92;
+  #endif
+  vec3 col = alb * uSunCol * lit * limb * sh;
+  float fres = pow(clamp(1.0 - dot(N, V), 0.0, 1.0), uAtmoPow);
+  col += uAtmo * fres * uAtmoAmt * smoothstep(-0.12, 0.3, ndl0) * sh;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+// Glow outside the limb, computed from how close each view ray passes to the planet
+const HALO_VERT = /* glsl */`
+varying vec3 vView; varying vec3 vCenter; varying float vR;
+uniform float uShell;
+void main(){
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vView = mv.xyz;
+  vCenter = (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  vR = length(modelViewMatrix[0].xyz) / uShell;
+  gl_Position = projectionMatrix * mv;
+}`;
+const HALO_FRAG = /* glsl */`
+precision highp float;
+uniform vec3 uSunV; uniform vec3 uColor; uniform vec3 uSunset; uniform float uH; uniform float uAmt;
+varying vec3 vView; varying vec3 vCenter; varying float vR;
+void main(){
+  vec3 dir = normalize(vView);
+  float tca = dot(vCenter, dir);
+  vec3 cp = dir * tca - vCenter;
+  float b = length(cp) / vR;
+  float dens = exp(-max(b - 1.0, 0.0) / uH);
+  vec3 nrm = cp / max(length(cp), 1e-4);
+  float sun = dot(nrm, uSunV);
+  float day = smoothstep(-0.30, 0.30, sun);
+  float fwd = pow(clamp(dot(dir, uSunV), 0.0001, 1.0), 5.0);
+  vec3 col = mix(uSunset, uColor, smoothstep(-0.12, 0.16, sun)) * day;
+  col += uSunset * pow(fwd, 5.0) * smoothstep(-0.5, 0.05, sun) * 1.6;
+  col += vec3(1.0, 0.9, 0.8) * pow(fwd, 60.0) * smoothstep(-0.4, 0.1, sun) * 2.0;
+  gl_FragColor = vec4(col * dens * uAmt, 1.0);
+}`;
+
+const RING_VERT = /* glsl */`
+varying vec3 vO; varying vec3 vV;
+void main(){ vO = position; vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = mv.xyz; gl_Position = projectionMatrix * mv; }`;
+const RING_FRAG = /* glsl */`
+precision highp float;
+uniform sampler2D uRing; uniform sampler2D uNoise; uniform vec3 uSunO; uniform vec3 uCamO; uniform vec2 uRingR; uniform vec3 uSunCol;
+varying vec3 vO; varying vec3 vV;
+void main(){
+  float rr = length(vO.xz);
+  float x = (rr - uRingR.x) / (uRingR.y - uRingR.x);
+  if (x < 0.0 || x > 1.0) discard;
+  vec4 t = texture2D(uRing, vec2(x, 0.5));
+  // fine ringlets that only resolve up close
+  float fine = texture2D(uNoise, vec2(x * 23.0, 0.37)).r * 0.6 + texture2D(uNoise, vec2(x * 131.0, 0.11)).g * 0.4;
+  float a = t.a * (0.72 + 0.56 * fine);
+  // planet's shadow across the rings (planet is a unit sphere here, squashed in y)
+  float along = dot(-vO, uSunO);
+  vec3 off = -vO - uSunO * along; off.y /= 0.9;
+  float shadow = step(0.0, along) * smoothstep(1.02, 0.97, length(off));
+  float sameSide = step(0.0, uSunO.y * uCamO.y);
+  float litFace = 0.32 + 0.68 * abs(uSunO.y) * 1.6;
+  vec3 lit = t.rgb * t.rgb * uSunCol * clamp(litFace, 0.0, 1.0);
+  vec3 through = t.rgb * t.rgb * uSunCol * (1.0 - a) * 0.5;
+  vec3 col = mix(through, lit, sameSide) * (1.0 - shadow * 0.96);
+  gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
+}`;
+
+const SPHERE_HI = new THREE.SphereGeometry(1, 256, 128);
+const SPHERE_MD = new THREE.SphereGeometry(1, 128, 64);
+const SPHERE_LO = new THREE.SphereGeometry(1, 48, 24);
+
+/*  Each world: where it sits relative to its station, how big it is drawn, how it is lit. */
+function makeWorld(def, shared) {
+  const group = new THREE.Group();          // position in the universe
+  const tilt = new THREE.Group();           // axial tilt
+  const spin = new THREE.Group();           // rotation about its own axis
+  group.add(tilt); tilt.add(spin);
+  tilt.rotation.set(def.tilt?.[0] || 0, def.tilt?.[1] || 0, def.tilt?.[2] || 0);
+  const squash = def.squash || 1;
+  let mat;
+  if (def.kind === 'earth') {
+    mat = new THREE.ShaderMaterial({
+      vertexShader: PLANET_VERT, fragmentShader: EARTH_FRAG,
+      uniforms: {
+        uData: { value: null }, uNoise: { value: shared.noise }, uSunV: { value: V3(1, 0, 0) },
+        uSunCol: { value: new THREE.Color(2.6, 2.5, 2.35) }, uCloudShift: { value: 0 }, uRadius: { value: def.radius },
+      },
+    });
+  } else {
+    const defines = {};
+    if (def.bump) defines.BUMP = 1;
+    if (def.rings) defines.RINGS = 1;
+    if (def.moonShadow) defines.MOONSHADOW = 1;
+    if (def.limb) defines.GAS = 1;
+    mat = new THREE.ShaderMaterial({
+      vertexShader: PLANET_VERT, fragmentShader: PLANET_FRAG, defines,
+      uniforms: {
+        uMap: { value: null }, uNoise: { value: shared.noise }, uSunV: { value: V3(1, 0, 0) }, uSunO: { value: V3(1, 0, 0) },
+        uSunCol: { value: new THREE.Color().setRGB(...(def.sun || [2.6, 2.5, 2.35])) },
+        uAtmo: { value: new THREE.Color().setRGB(...(def.atmo || [0, 0, 0])) }, uAtmoAmt: { value: def.atmoAmt || 0 }, uAtmoPow: { value: def.atmoPow || 3 },
+        uBump: { value: (def.bump || 0) * def.radius }, uTerm: { value: def.term ?? 0.02 }, uDetail: { value: def.detail ?? 0.3 },
+        uLimb: { value: def.limb || 0 }, uShift: { value: 0 },
+        uRing: { value: shared.ring }, uRingR: { value: new THREE.Vector2(1.239, 2.269) },
+        uMoonO: { value: V3(9, 9, 9) }, uMoonR: { value: 0.02 },
+      },
+    });
+  }
+  const body = new THREE.Mesh(def.hi ? SPHERE_HI : SPHERE_MD, mat);
+  body.scale.set(def.radius, def.radius * squash, def.radius);
+  spin.add(body);
+  let halo = null;
+  if (def.halo) {
+    const shell = def.halo.shell || 1.08;
+    halo = new THREE.Mesh(SPHERE_MD, new THREE.ShaderMaterial({
+      vertexShader: HALO_VERT, fragmentShader: HALO_FRAG, side: THREE.BackSide, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+      uniforms: {
+        uSunV: { value: V3(1, 0, 0) }, uShell: { value: shell }, uH: { value: def.halo.h },
+        uColor: { value: new THREE.Color().setRGB(...def.halo.color) }, uSunset: { value: new THREE.Color().setRGB(...(def.halo.sunset || def.halo.color)) },
+        uAmt: { value: def.halo.amt },
+      },
+    }));
+    halo.scale.setScalar(def.radius * shell);
+    group.add(halo);
+  }
+  let ring = null;
+  if (def.rings) {
+    const geo = new THREE.RingGeometry(1.239, 2.269, 256, 1);
+    geo.rotateX(-Math.PI / 2);
+    ring = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+      vertexShader: RING_VERT, fragmentShader: RING_FRAG, side: THREE.DoubleSide, transparent: true, depthWrite: false,
+      uniforms: {
+        uRing: { value: shared.ring }, uNoise: { value: shared.noise }, uSunO: { value: V3(1, 0, 0) }, uCamO: { value: V3(0, 1, 0) },
+        uRingR: { value: new THREE.Vector2(1.239, 2.269) }, uSunCol: { value: new THREE.Color(1.3, 1.24, 1.12) },
+      },
+    }));
+    ring.scale.setScalar(def.radius);
+    tilt.add(ring);
+  }
+  const moons = [];
+  for (const m of def.moons || []) {
+    const mm = new THREE.Mesh(SPHERE_LO, new THREE.MeshStandardMaterial({ color: m.color, roughness: 1, metalness: 0 }));
+    mm.scale.setScalar(m.radius);
+    mm.position.set(...m.pos);
+    group.add(mm);
+    moons.push(mm);
+  }
+  return { def, group, tilt, spin, body, mat, halo, ring, moons, baked: false, pos: V3(), };
+}
+
+const _q = new THREE.Quaternion(), _v = V3(), _v2 = V3(), _v3 = V3();
+function updateWorld(w, sunDir, camera, time) {
+  // sun in view space for surface + halo
+  _v.copy(sunDir).transformDirection(camera.matrixWorldInverse);
+  w.mat.uniforms.uSunV.value.copy(_v);
+  if (w.halo) w.halo.material.uniforms.uSunV.value.copy(_v);
+  if (w.ring || w.def.moonShadow) {
+    // sun and camera in the ring's own frame (unit planet radius)
+    w.tilt.updateWorldMatrix(true, false);
+    _q.setFromRotationMatrix(w.tilt.matrixWorld).invert();
+    _v.copy(sunDir).applyQuaternion(_q);
+    if (w.ring) {
+      w.ring.material.uniforms.uSunO.value.copy(_v);
+      _v2.copy(camera.position).sub(w.group.getWorldPosition(_v3)).applyQuaternion(_q);
+      w.ring.material.uniforms.uCamO.value.copy(_v2);
+    }
+    // surface shader works in the spinning body's unit-sphere frame
+    w.body.updateWorldMatrix(true, false);
+    _q.setFromRotationMatrix(w.spin.matrixWorld).invert();
+    _v.copy(sunDir).applyQuaternion(_q);
+    _v.y /= w.def.squash || 1; _v.normalize();
+    w.mat.uniforms.uSunO.value.copy(_v);
+    if (w.def.moonShadow && w.shadowCaster) {
+      _v2.copy(w.shadowCaster.pos).sub(w.def.pos).applyQuaternion(_q).divideScalar(w.def.radius);
+      w.mat.uniforms.uMoonO.value.copy(_v2);
+      w.mat.uniforms.uMoonR.value = w.shadowCaster.radius / w.def.radius;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* FSV Meridian, hull seven. 1 unit = 5 m, bow toward +Z               */
+/* ------------------------------------------------------------------ */
+function canvasTex(w, h, draw, opts = {}) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'); draw(ctx, w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = opts.linear ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  if (opts.repeat) t.repeat.set(...opts.repeat);
+  return t;
+}
+
+function panelTextures(seed, base = 205) {
+  const paint = (bump) => (ctx, w, h) => {
+    const rnd = mulberry(seed);
+    ctx.fillStyle = bump ? '#808080' : `rgb(${base},${base + 1},${base + 3})`; ctx.fillRect(0, 0, w, h);
+    const cols = 8, rows = 6;
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      const x = (i / cols) * w, y = (j / rows) * h, cw = w / cols, ch = h / rows;
+      const split = rnd() > 0.6;
+      const tiles = split ? [[x, y, cw / 2, ch], [x + cw / 2, y, cw / 2, ch]] : [[x, y, cw, ch]];
+      for (const [tx, ty, tw, th] of tiles) {
+        const v = (rnd() - 0.5) * 22;
+        if (!bump) { ctx.fillStyle = `rgba(${v > 0 ? 255 : 0},${v > 0 ? 255 : 0},${v > 0 ? 255 : 0},${Math.abs(v) / 255})`; ctx.fillRect(tx, ty, tw, th); }
+        ctx.strokeStyle = bump ? '#3a3a3a' : 'rgba(40,44,52,0.55)'; ctx.lineWidth = bump ? 3 : 1.5;
+        ctx.strokeRect(tx + 0.5, ty + 0.5, tw, th);
+        if (!bump && rnd() > 0.8) { ctx.fillStyle = 'rgba(30,32,38,0.5)'; ctx.fillRect(tx + tw * 0.15, ty + th * 0.2, tw * 0.12, th * 0.1); }
+      }
+    }
+    if (!bump) for (let k = 0; k < 500; k++) { ctx.fillStyle = `rgba(20,22,28,${rnd() * 0.07})`; ctx.fillRect(rnd() * w, rnd() * h, 1 + rnd() * 40, 1 + rnd() * 3); }
+  };
+  return { map: canvasTex(1024, 1024, paint(false)), bump: canvasTex(1024, 1024, paint(true), { linear: true }) };
+}
+
+function windowTexture(w, h, rows, seed) {
+  return canvasTex(w, h, (ctx) => {
+    const rnd = mulberry(seed);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    for (const r of rows) {
+      const n = Math.floor(w / 22);
+      for (let i = 0; i < n; i++) {
+        if (rnd() < 0.3) continue;
+        const warm = rnd();
+        ctx.fillStyle = warm > 0.25 ? `rgb(255,${200 + warm * 40 | 0},${130 + warm * 60 | 0})` : 'rgb(170,210,255)';
+        ctx.fillRect(i * 22 + 5, r * h - 4, 11, 8);
+      }
+    }
+  });
+}
+
+function letteringTexture(text, sub, flip) {
+  const w = 256, h = 2048;
+  const tex = canvasTex(w, h, () => {});
+  const paint = () => {
+    const ctx = tex.image.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    ctx.translate(w / 2, h / 2); ctx.rotate(flip ? Math.PI / 2 : -Math.PI / 2);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(16,19,26,0.92)';
+    ctx.font = '800 expanded 150px Archivo, "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText(text, -h / 2 + 90, -8);
+    const tw = ctx.measureText(text).width;
+    ctx.font = '500 condensed 78px Archivo, "Helvetica Neue", Arial, sans-serif';
+    ctx.fillText(sub, -h / 2 + 90 + tw + 70, 22);
+    ctx.fillStyle = 'rgba(255,170,50,0.95)';
+    ctx.fillRect(-h / 2 + 90, 92, tw, 12);
+    ctx.restore();
+    tex.needsUpdate = true;
+  };
+  paint();
+  if (document.fonts?.load) document.fonts.load('800 150px Archivo').then(paint).catch(() => {});
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+function zCyl(rFront, rBack, len, seg = 32, open = false) {
+  const g = new THREE.CylinderGeometry(rFront, rBack, len, seg, 1, open);
+  g.rotateX(Math.PI / 2);
+  return g;
+}
+
+const PLUME_VERT = /* glsl */`
+varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+void main(){ vUv = uv; vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = mv.xyz; gl_Position = projectionMatrix * mv; }`;
+const PLUME_FRAG = /* glsl */`
+precision highp float;
+uniform float uBurn; uniform float uTime; uniform float uCore; uniform vec3 uTint;
+varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+void main(){
+  float along = clamp(1.0 - vUv.y, 0.0, 1.0);
+  float taper = max(1.0 - along, 0.0001);
+  float edge = pow(clamp(abs(dot(normalize(vN), normalize(-vV))), 0.0001, 1.0), 1.4);
+  float flick = 0.86 + 0.14 * sin(uTime * 41.0 + along * 30.0);
+  float diamonds = 0.72 + 0.28 * sin(along * 52.0 - uTime * 26.0);
+  float a = pow(taper, mix(2.4, 1.3, uCore)) * edge * flick * diamonds * uBurn;
+  vec3 col = mix(vec3(0.20, 0.42, 1.0), vec3(0.80, 0.92, 1.0), taper * taper * taper * (0.5 + 0.5 * uCore));
+  gl_FragColor = vec4(mix(col * uTint, col, uCore * 0.6) * a * mix(5.0, 9.0, uCore), 1.0);
+}`;
+
+function buildShip() {
+  const root = new THREE.Group();
+  const hullTex = panelTextures(7);
+  const tankTex = panelTextures(21, 222);
+  [hullTex, tankTex].forEach((t) => { t.map.repeat.set(3, 1); t.bump.repeat.set(3, 1); });
+  const M = {
+    hull: new THREE.MeshStandardMaterial({ color: 0xdfe1e4, roughness: 0.52, metalness: 0.25, map: hullTex.map, bumpMap: hullTex.bump, bumpScale: 0.6 }),
+    tank: new THREE.MeshStandardMaterial({ color: 0xe2e0da, roughness: 0.5, metalness: 0.25, map: tankTex.map, bumpMap: tankTex.bump, bumpScale: 0.5 }),
+    truss: new THREE.MeshStandardMaterial({ color: 0x5a5f69, roughness: 0.45, metalness: 0.9 }),
+    dark: new THREE.MeshStandardMaterial({ color: 0x14161b, roughness: 0.85, metalness: 0.2 }),
+    gold: new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.32, metalness: 1.0 }),
+    steel: new THREE.MeshStandardMaterial({ color: 0x9aa1ad, roughness: 0.28, metalness: 1.0 }),
+    bell: new THREE.MeshStandardMaterial({ color: 0x4b505b, roughness: 0.35, metalness: 1.0, side: THREE.DoubleSide }),
+    white: new THREE.MeshStandardMaterial({ color: 0xe9e9e6, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide }),
+  };
+  const add = (parent, geo, mat, pos, rot) => {
+    const m = new THREE.Mesh(geo, mat);
+    if (pos) m.position.set(...pos);
+    if (rot) m.rotation.set(...rot);
+    parent.add(m); return m;
+  };
+  const modules = [];   // { obj, away:Vector3, win:[a,b], unfold? }
+  const mod = (away, win, extra = {}) => { const g = new THREE.Group(); root.add(g); modules.push({ obj: g, away: V3(...away), win, ...extra }); return g; };
+
+  /* -- keel: fourteen truss bays ----------------------------------- */
+  const BAY = 1.75, BAYS = 14, Z0 = -13.5, HW = 0.75;
+  const bayParts = [];
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) { const g = new THREE.BoxGeometry(0.15, 0.15, BAY); g.translate(sx * HW, sy * HW, BAY / 2); bayParts.push(g); }
+  for (const s of [-1, 1]) {
+    const gx = new THREE.BoxGeometry(HW * 2, 0.11, 0.11); gx.translate(0, s * HW, 0); bayParts.push(gx);
+    const gy = new THREE.BoxGeometry(0.11, HW * 2, 0.11); gy.translate(s * HW, 0, 0); bayParts.push(gy);
+  }
+  const diagLen = Math.hypot(HW * 2, BAY), diagAng = Math.atan2(HW * 2, BAY);
+  for (const s of [-1, 1]) {
+    const a = new THREE.BoxGeometry(0.08, 0.08, diagLen); a.rotateY(s * diagAng); a.translate(0, s * HW, BAY / 2); bayParts.push(a);
+    const b = new THREE.BoxGeometry(0.08, 0.08, diagLen); b.rotateX(-s * diagAng); b.translate(s * HW, 0, BAY / 2); bayParts.push(b);
+  }
+  const pipe = zCyl(0.3, 0.3, BAY, 12); pipe.translate(0, 0, BAY / 2); bayParts.push(pipe);
+  const bayGeo = mergeGeometries(bayParts.map((g) => g.toNonIndexed()));
+  for (let i = 0; i < BAYS; i++) {
+    const g = mod([0, 15 + (i % 2) * 3, -5 + i * 0.4], [0.02 + i * 0.0165, 0.02 + i * 0.0165 + 0.075], { tumble: (i % 2 ? 1 : -1) * 0.9 });
+    add(g, bayGeo, M.truss, [0, 0, Z0 + i * BAY]);
+  }
+
+  /* -- propellant: six main tanks, four pressurant spheres ---------- */
+  const tankGeo = new THREE.CapsuleGeometry(1.3, 8.4, 12, 32); tankGeo.rotateX(Math.PI / 2);
+  const bandGeo = zCyl(1.325, 1.325, 0.45, 32, true);
+  const strutGeo = new THREE.BoxGeometry(1.2, 0.12, 0.12);
+  const decalDefs = { 1: ['FARSHORE', 'FSV-07 Meridian', false], 4: ['FARSHORE', 'FSV-07 Meridian', false], 0: ['MERIDIAN', 'Hull seven', true], 2: ['MERIDIAN', 'Hull seven', false] };
+  for (let k = 0; k < 6; k++) {
+    const phi = (30 + k * 60) * DEG, cx = Math.cos(phi), cy = Math.sin(phi);
+    const g = mod([cx * 7, cy * 7, 3], [0.26 + k * 0.022, 0.40 + k * 0.022]);
+    const tk = add(g, tankGeo, M.tank, [cx * 3.05, cy * 3.05, 2.5]);
+    tk.rotation.z = phi;
+    for (const bz of [-2.6, 7.6]) add(g, bandGeo, M.gold, [cx * 3.05, cy * 3.05, bz]);
+    for (const sz of [-1, 6]) { const st = add(g, strutGeo, M.truss, [cx * 1.25, cy * 1.25, sz]); st.rotation.z = phi; }
+    if (decalDefs[k]) {
+      const [t1, t2, flip] = decalDefs[k];
+      const arc = 1.25;
+      const dg = new THREE.CylinderGeometry(1.312, 1.312, 9.4, 24, 1, true, phi + Math.PI / 2 - arc / 2, arc);
+      dg.rotateX(Math.PI / 2);
+      const dm = new THREE.Mesh(dg, new THREE.MeshStandardMaterial({ map: letteringTexture(t1, t2, flip), transparent: true, roughness: 0.6, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -2 }));
+      dm.position.set(cx * 3.05, cy * 3.05, 2.5);
+      g.add(dm);
+    }
+  }
+  {
+    const g = mod([0, 0, -1], [0.36, 0.48], { scaleIn: true });
+    const sg = new THREE.SphereGeometry(0.95, 24, 16);
+    for (let k = 0; k < 4; k++) { const a = (45 + k * 90) * DEG; add(g, sg, M.gold, [Math.cos(a) * 1.9, Math.sin(a) * 1.9, -5.4]); }
+  }
+
+  /* -- drive section ------------------------------------------------ */
+  const drive = mod([0, 0, -17], [0.38, 0.54]);
+  add(drive, zCyl(3.3, 2.9, 0.45, 48), M.dark, [0, 0, -14.3]);
+  add(drive, zCyl(2.3, 1.5, 2.0, 32), M.hull, [0, 0, -15.6]);
+  add(drive, zCyl(1.55, 1.55, 1.7, 32), M.steel, [0, 0, -17.4]);
+  for (const rz of [-16.9, -17.4, -17.9]) add(drive, new THREE.TorusGeometry(1.6, 0.09, 8, 40), M.truss, [0, 0, rz]);
+  const bellPts = []; for (let i = 0; i <= 14; i++) { const u = i / 14; bellPts.push(new THREE.Vector2(0.36 + 0.8 * Math.pow(u, 0.6), -3.2 * u)); }
+  const bellGeo = new THREE.LatheGeometry(bellPts, 32); bellGeo.rotateX(Math.PI / 2);
+  const plumeGeo = new THREE.CylinderGeometry(1.0, 0.04, 1, 24, 12, true); plumeGeo.rotateX(Math.PI / 2); plumeGeo.translate(0, 0, -0.5);
+  const plumeU = { uBurn: { value: 0 }, uTime: { value: 0 } };
+  const plumeMat = (core) => new THREE.ShaderMaterial({
+    vertexShader: PLUME_VERT, fragmentShader: PLUME_FRAG, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { ...plumeU, uCore: { value: core }, uTint: { value: new THREE.Color(1, 1, 1) } },
+  });
+  const plumes = [], throats = [];
+  const throatMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  for (let k = 0; k < 3; k++) {
+    const a = (90 + k * 120) * DEG, ex = Math.cos(a) * 1.4, ey = Math.sin(a) * 1.4;
+    add(drive, bellGeo, M.bell, [ex, ey, -18.2]);
+    const th = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), throatMat); th.position.set(ex, ey, -18.9); th.rotation.y = Math.PI; drive.add(th); throats.push(th);
+    const p1 = new THREE.Mesh(plumeGeo, plumeMat(0)); p1.position.set(ex, ey, -21.3); p1.scale.set(1.1, 1.1, 36); drive.add(p1);
+    const p2 = new THREE.Mesh(plumeGeo, plumeMat(1)); p2.position.set(ex, ey, -20.2); p2.scale.set(0.5, 0.5, 20); drive.add(p2);
+    plumes.push(p1, p2);
+  }
+  const engineLight = { intensity: 0 };
+  for (let k = 0; k < 4; k++) { const a = k * 90 * DEG; add(drive, new THREE.BoxGeometry(0.5, 0.5, 0.7), M.hull, [Math.cos(a) * 3.0, Math.sin(a) * 3.0, -14.0]); }
+
+  /* -- radiators ---------------------------------------------------- */
+  const radTex = canvasTex(512, 128, (ctx, w, h) => {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+    for (let i = 0; i < 26; i++) { ctx.fillStyle = i % 2 ? '#ff5a1e' : '#d93a10'; ctx.fillRect(i * (w / 26) + 3, 6, w / 26 - 6, h - 12); }
+    const g = ctx.createLinearGradient(0, 0, w, 0); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.75)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  });
+  const radMat = new THREE.MeshStandardMaterial({ color: 0x8b9099, roughness: 0.55, metalness: 0.35, emissive: 0xffffff, emissiveMap: radTex, emissiveIntensity: 0.05 });
+  const radMatFlip = radMat.clone(); radMatFlip.emissiveMap = radTex.clone(); radMatFlip.emissiveMap.repeat.set(-1, 1); radMatFlip.emissiveMap.offset.set(1, 0);
+  const navLights = [];
+  for (const s of [-1, 1]) {
+    const g = mod([s * 8, 0, 0], [0.52, 0.76], { unfold: true });
+    const hinge = new THREE.Group(); hinge.position.set(s * 1.0, 0, 0); g.add(hinge);
+    for (const pz of [-8.7, -11.6]) {
+      const p = add(hinge, new THREE.BoxGeometry(11, 0.07, 2.6), s > 0 ? radMat : radMatFlip, [s * 5.9, 0, pz]);
+      p.userData.rad = true;
+    }
+    add(hinge, new THREE.BoxGeometry(11.6, 0.16, 0.16), M.truss, [s * 5.8, 0, -10.15]);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(...(s > 0 ? [9, 0.5, 0.3] : [0.4, 8, 1.2])) }));
+    lamp.position.set(s * 11.7, 0, -10.15); hinge.add(lamp); navLights.push({ mesh: lamp, phase: 0, steady: true });
+    modules[modules.length - 1].hinge = hinge;
+  }
+
+  /* -- forward section: hub, ring, command module ------------------- */
+  const fwd = mod([0, 0, 19], [0.74, 0.95]);
+  add(fwd, zCyl(1.5, 1.5, 3.0, 32), M.hull, [0, 0, 12.5]);
+  add(fwd, zCyl(1.0, 1.25, 1.5, 24), M.steel, [0, 0, 14.75]);
+  const cmPts = [new THREE.Vector2(0, 0), new THREE.Vector2(1.7, 0), new THREE.Vector2(1.7, 3.0)];
+  const nosePts = [new THREE.Vector2(1.7, 3.0)];
+  for (let i = 1; i <= 12; i++) { const u = i / 12; nosePts.push(new THREE.Vector2(0.55 + 1.15 * Math.pow(Math.cos(u * Math.PI / 2), 0.85), 3.0 + 2.6 * u)); }
+  nosePts.push(new THREE.Vector2(0.55, 6.0), new THREE.Vector2(0, 6.0));
+  const cmGeo = new THREE.LatheGeometry(cmPts, 40); cmGeo.rotateX(Math.PI / 2);
+  const noseGeo = new THREE.LatheGeometry(nosePts, 40); noseGeo.rotateX(Math.PI / 2);
+  // Lathe + rotateX(+90deg) sends profile +y to +z
+  add(fwd, cmGeo, M.hull, [0, 0, 15.5]);
+  add(fwd, noseGeo, M.dark, [0, 0, 15.5]);
+  const winMat = new THREE.MeshStandardMaterial({ color: 0x0b0d12, roughness: 0.3, metalness: 0.6, emissive: 0xffffff, emissiveMap: windowTexture(1024, 64, [0.5], 5), emissiveIntensity: 2.2 });
+  add(fwd, zCyl(1.715, 1.715, 0.42, 40, true), winMat, [0, 0, 17.7]);
+  for (let k = 0; k < 4; k++) { const a = (45 + k * 90) * DEG; add(fwd, new THREE.BoxGeometry(0.42, 0.42, 0.6), M.hull, [Math.cos(a) * 1.85, Math.sin(a) * 1.85, 16.0]); }
+  // high-gain dish
+  const dishPts = []; for (let i = 0; i <= 10; i++) { const r = (i / 10) * 1.5; dishPts.push(new THREE.Vector2(r, 0.22 * r * r)); }
+  const dish = new THREE.Group(); dish.position.set(0, 3.1, 14.8); dish.rotation.set(-0.5, 0, 0.25); fwd.add(dish);
+  add(dish, new THREE.LatheGeometry(dishPts, 28), M.white);
+  add(dish, new THREE.CylinderGeometry(0.04, 0.04, 0.9, 6), M.truss, [0, 0.45, 0]);
+  add(fwd, new THREE.CylinderGeometry(0.08, 0.08, 2.0, 8), M.truss, [0, 2.1, 14.8]);
+  const strobeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 6, 6) });
+  for (const [sx, sy, sz] of [[0, 0, 21.6]]) { const l = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), strobeMat); l.position.set(sx, sy, sz); fwd.add(l); navLights.push({ mesh: l, phase: 0 }); }
+  { const l = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), strobeMat); l.position.set(0, 3.35, -14.3); drive.add(l); navLights.push({ mesh: l, phase: 0.5 }); }
+
+  const ringMod = mod([0, 0, 27], [0.78, 0.97]);
+  const ring = new THREE.Group(); ring.position.set(0, 0, 12.5); ringMod.add(ring);
+  const ringTex = panelTextures(33); ringTex.map.repeat.set(24, 2); ringTex.bump.repeat.set(24, 2);
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0xe6e7ea, roughness: 0.5, metalness: 0.25, map: ringTex.map, bumpMap: ringTex.bump, bumpScale: 0.5, emissive: 0xffffff, emissiveMap: windowTexture(2048, 128, [0.25, 0.75], 11), emissiveIntensity: 2.0 });
+  const torus = add(ring, new THREE.TorusGeometry(5.6, 0.8, 20, 120), ringMat); torus.scale.z = 1.35;
+  const spokeGeo = new THREE.CylinderGeometry(0.3, 0.3, 3.5, 12);
+  for (let k = 0; k < 4; k++) { const sp = new THREE.Group(); sp.rotation.z = k * 90 * DEG; ring.add(sp); add(sp, spokeGeo, M.hull, [0, 3.2, 0]); }
+  add(ring, zCyl(1.62, 1.62, 1.0, 32), M.steel);
+
+  plumes.forEach((p) => { p.renderOrder = 5; });
+
+  let ringAngle = 0, spinRate = 0, lastB = 1;
+  const anchors = {
+    ring: V3(0, 6.5, 12.5), tanks: V3(0, 4.5, 4.5), radiators: V3(-8.5, 0.2, -9), drive: V3(0, 2.6, -19.5),
+  };
+
+  function setBuild(b) {
+    lastB = b;
+    for (const m of modules) {
+      const k = clamp((b - m.win[0]) / (m.win[1] - m.win[0]));
+      if (m.unfold) {
+        const slide = 1 - easeOut(clamp(k / 0.45));
+        const open = smoother(clamp((k - 0.4) / 0.6));
+        m.obj.position.copy(m.away).multiplyScalar(slide);
+        m.hinge.scale.x = lerp(0.03, 1, open);
+      } else if (m.scaleIn) {
+        m.obj.position.copy(m.away).multiplyScalar(1 - easeOut(k));
+        m.obj.scale.setScalar(lerp(0.001, 1, easeOut(k)));
+      } else {
+        const e = 1 - easeOut(k);
+        m.obj.position.copy(m.away).multiplyScalar(e);
+        if (m.tumble) m.obj.rotation.set(e * m.tumble, 0, e * m.tumble * 0.6);
+      }
+      m.obj.visible = !(m.tumble && k <= 0);
+    }
+  }
+
+  function update(dt, time, burn, motion) {
+    const target = lastB > 0.965 ? 0.4189 : 0;            // 4.0 rpm, in real time
+    spinRate += (target - spinRate) * Math.min(1, dt * 0.9);
+    ringAngle += spinRate * dt * motion;
+    ring.rotation.z = ringAngle;
+    plumeU.uBurn.value = burn; plumeU.uTime.value = time;
+    for (let i = 0; i < plumes.length; i++) { const core = i % 2; plumes[i].visible = burn > 0.01; plumes[i].scale.z = (core ? 20 : 36) * (0.35 + 0.65 * burn); }
+    throatMat.color.setRGB(2 + burn * 10, 3 + burn * 12, 6 + burn * 16).multiplyScalar(burn > 0.01 ? 1 : 0.02);
+    engineLight.intensity = burn * 900;
+    const heat = 0.05 + burn * 1.5;
+    radMat.emissiveIntensity += (heat - radMat.emissiveIntensity) * Math.min(1, dt * 0.8);
+    radMatFlip.emissiveIntensity = radMat.emissiveIntensity;
+    for (const n of navLights) n.mesh.visible = n.steady ? true : ((time * 0.8 + n.phase) % 1) < 0.08;
+  }
+  setBuild(1);
+  return { root, setBuild, update, anchors, materials: M };
+}
+
+/* ------------------------------------------------------------------ */
+/* The slip: an orbital dry dock with sodium work lamps                */
+/* ------------------------------------------------------------------ */
+function buildDock() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x3b3f48, roughness: 0.55, metalness: 0.85 });
+  const R = 14.5, parts = [];
+  const frames = [-22, -11, 0, 11, 22];
+  for (const z of frames) { const t = new THREE.TorusGeometry(R, 0.18, 6, 6); t.rotateZ(Math.PI / 6); t.translate(0, 0, z); parts.push(t.toNonIndexed()); }
+  for (let k = 0; k < 6; k++) {
+    const a = (k * 60 + 30) * DEG, x = Math.cos(a) * R, y = Math.sin(a) * R;
+    const b = new THREE.BoxGeometry(0.24, 0.24, 44); b.translate(x, y, 0); parts.push(b.toNonIndexed());
+    // zig-zag bracing between neighbouring longerons
+    const a2 = ((k + 1) * 60 + 30) * DEG, x2 = Math.cos(a2) * R, y2 = Math.sin(a2) * R;
+    for (let i = 0; i < frames.length - 1; i++) {
+      const from = V3(i % 2 ? x : x2, i % 2 ? y : y2, frames[i]), to = V3(i % 2 ? x2 : x, i % 2 ? y2 : y, frames[i + 1]);
+      const len = from.distanceTo(to);
+      const d = new THREE.BoxGeometry(0.08, 0.08, len);
+      const m4 = new THREE.Matrix4().lookAt(from, to, V3(0, 1, 0)); m4.setPosition(from.clone().add(to).multiplyScalar(0.5));
+      d.applyMatrix4(m4); parts.push(d.toNonIndexed());
+    }
+  }
+  const frame = new THREE.Mesh(mergeGeometries(parts), mat);
+  g.add(frame);
+  const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 2.6, 0.7) });
+  const lampGeo = new THREE.SphereGeometry(0.22, 10, 8);
+  const lamps = [];
+  for (const z of frames) for (const k of [0, 2, 3, 5]) {
+    const a = (k * 60 + 30) * DEG;
+    const l = new THREE.Mesh(lampGeo, lampMat); l.position.set(Math.cos(a) * (R - 0.5), Math.sin(a) * (R - 0.5), z); g.add(l);
+  }
+  for (const [x, y, z] of [[10, 8, 12], [-10, -7, -14]]) {
+    const pl = new THREE.PointLight(0xffb040, 420, 70, 1.8); pl.position.set(x, y, z); g.add(pl); lamps.push(pl);
+  }
+  return { group: g, lamps, lampMat };
+}
+
+/* ------------------------------------------------------------------ */
+/* The player's ships: Keita One, Keita 3, Keita Fly. Bow toward +Z.   */
+/* ------------------------------------------------------------------ */
+function plate(pts, t) {                       // flat panel in the XZ plane from an [x, z] outline
+  const sh = new THREE.Shape();
+  pts.forEach(([x, z], i) => (i ? sh.lineTo(x, z) : sh.moveTo(x, z)));
+  const g = new THREE.ExtrudeGeometry(sh, { depth: t, bevelEnabled: false });
+  g.translate(0, 0, -t / 2); g.rotateX(Math.PI / 2);
+  return g;
+}
+const mirrorX = (pts) => pts.map(([x, z]) => [-x, z]);
+function lathe(profile, seg = 28) {            // body of revolution from [radius, z] pairs
+  const g = new THREE.LatheGeometry(profile.map(([r, z]) => new THREE.Vector2(r, z)), seg);
+  g.rotateX(Math.PI / 2);
+  return g;
+}
+const FLEET_PLUME_GEO = (() => { const g = new THREE.CylinderGeometry(1.0, 0.04, 1, 20, 10, true); g.rotateX(Math.PI / 2); g.translate(0, 0, -0.5); return g; })();
+
+function fleetKit(accent, plumeTint) {
+  const hullTex = panelTextures(51, 214); hullTex.map.repeat.set(2, 1); hullTex.bump.repeat.set(2, 1);
+  const M = {
+    hull: new THREE.MeshStandardMaterial({ color: 0xe4e2dc, roughness: 0.42, metalness: 0.35, map: hullTex.map, bumpMap: hullTex.bump, bumpScale: 0.35 }),
+    panel: new THREE.MeshStandardMaterial({ color: 0xd7d6d1, roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide }),
+    dark: new THREE.MeshStandardMaterial({ color: 0x1a1d24, roughness: 0.6, metalness: 0.5, side: THREE.DoubleSide }),
+    metal: new THREE.MeshStandardMaterial({ color: 0x7d8490, roughness: 0.3, metalness: 1.0, side: THREE.DoubleSide }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x0a1626, roughness: 0.08, metalness: 0.9, emissive: 0x1d4f7a, emissiveIntensity: 0.35 }),
+    accent: new THREE.MeshStandardMaterial({ color: accent, roughness: 0.4, metalness: 0.3, emissive: accent, emissiveIntensity: 0.55, side: THREE.DoubleSide }),
+  };
+  const root = new THREE.Group();
+  const plumeU = { uBurn: { value: 0 }, uTime: { value: 0 } };
+  const plumes = [], throatMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  const add = (parent, geo, mat, pos, rot, scale) => {
+    const m = new THREE.Mesh(geo, mat);
+    if (pos) m.position.set(...pos); if (rot) m.rotation.set(...rot); if (scale) m.scale.set(...scale);
+    parent.add(m); return m;
+  };
+  function engine(parent, x, y, z, r, len) {
+    const bell = lathe([[r * 0.55, 0], [r * 0.8, -r * 0.7], [r, -r * 1.5]], 20);
+    add(parent, bell, M.metal, [x, y, z]);
+    const th = new THREE.Mesh(new THREE.CircleGeometry(r * 0.7, 16), throatMat); th.position.set(x, y, z - r * 0.5); th.rotation.y = Math.PI; parent.add(th);
+    for (const core of [0, 1]) {
+      const p = new THREE.Mesh(FLEET_PLUME_GEO, new THREE.ShaderMaterial({
+        vertexShader: PLUME_VERT, fragmentShader: PLUME_FRAG, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        uniforms: { ...plumeU, uCore: { value: core }, uTint: { value: new THREE.Color().setRGB(...plumeTint) } },
+      }));
+      p.position.set(x, y, z - r * (core ? 0.6 : 1.4));
+      p.userData = { r: r * (core ? 0.5 : 1.05), len: len * (core ? 0.55 : 1) };
+      p.renderOrder = 6; parent.add(p); plumes.push(p);
+    }
+  }
+  const lamp = (parent, x, y, z, rgb) => { const l = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(...rgb) })); l.position.set(x, y, z); parent.add(l); return l; };
+  function update(dt, time, burn, boost) {
+    plumeU.uBurn.value = burn; plumeU.uTime.value = time;
+    for (const p of plumes) { p.visible = burn > 0.01; p.scale.set(p.userData.r, p.userData.r, p.userData.len * (0.25 + 0.75 * burn) * (boost ? 1.5 : 1)); }
+    const glow = 0.03 + burn * 5; throatMat.color.setRGB(plumeTint[0] * glow, plumeTint[1] * glow, plumeTint[2] * glow);
+  }
+  return { M, root, add, engine, lamp, update };
+}
+
+/* Keita One: the all-rounder. One engine, a delta wing, a tall fin. */
+function buildKeitaOne() {
+  const k = fleetKit(0xffb648, [0.75, 0.85, 1.0]);
+  const { M, root, add } = k;
+  add(root, lathe([[0, 5.7], [0.16, 5.4], [0.46, 4.3], [0.8, 2.6], [1.0, 0.8], [1.02, -1.6], [0.9, -3.4], [0.74, -4.3], [0, -4.3]], 32), M.hull, null, null, [1, 0.74, 1]);
+  add(root, new THREE.SphereGeometry(1, 24, 16), M.glass, [0, 0.42, 2.5], null, [0.47, 0.38, 1.3]);
+  const wing = [[0.6, 1.6], [5.0, -3.0], [5.0, -4.1], [0.6, -3.9]];
+  const edge = [[0.6, 1.62], [5.02, -2.98], [5.02, -3.3], [0.6, 1.2]];
+  for (const m of [wing, mirrorX(wing)]) add(root, plate(m, 0.13), M.panel, [0, -0.12, 0]);
+  for (const m of [edge, mirrorX(edge)]) add(root, plate(m, 0.16), M.accent, [0, -0.12, 0]);
+  const tip = plate([[0, -2.9], [1.0, -3.9], [1.0, -4.25], [0, -4.1]], 0.1); tip.rotateZ(Math.PI / 2);
+  for (const s of [-1, 1]) add(root, tip, M.dark, [s * 5.0, -0.12, 0]);
+  const fin = plate([[0, -1.6], [1.9, -3.9], [1.9, -4.5], [0, -4.25]], 0.12); fin.rotateZ(Math.PI / 2);
+  add(root, fin, M.panel, [0, 0.62, 0]);
+  const finEdge = plate([[0, -1.58], [1.92, -3.88], [1.92, -4.1], [0, -1.95]], 0.14); finEdge.rotateZ(Math.PI / 2);
+  add(root, finEdge, M.accent, [0, 0.62, 0]);
+  for (const s of [-1, 1]) add(root, lathe([[0, 1.2], [0.26, 0.9], [0.3, -1.6], [0, -1.6]], 12), M.dark, [s * 1.9, -0.2, -1.6]);
+  add(root, new THREE.TorusGeometry(0.76, 0.06, 8, 28), M.accent, [0, 0, -4.2], null, [1, 0.76, 1]);
+  k.engine(root, 0, 0, -4.3, 0.78, 15);
+  k.lamp(root, 5.0, -0.1, -3.6, [8, 0.5, 0.3]); k.lamp(root, -5.0, -0.1, -3.6, [0.4, 7, 1.2]);
+  return { root, update: k.update, cam: { back: 19, up: 4.4 }, speed: 1.0, agility: 1.0 };
+}
+
+/* Keita 3: three engines on three booms, joined by a hoop. Fast in a straight line. */
+function buildKeitaThree() {
+  const k = fleetKit(0x55d6ff, [0.45, 0.95, 1.0]);
+  const { M, root, add } = k;
+  const cap = new THREE.CapsuleGeometry(0.95, 3.4, 10, 24); cap.rotateX(Math.PI / 2);
+  add(root, cap, M.hull, [0, 0, 0.6]);
+  add(root, new THREE.SphereGeometry(1, 24, 16), M.glass, [0, 0.22, 2.55], null, [0.72, 0.6, 1.0]);
+  add(root, zCyl(0.99, 0.99, 0.22, 28, true), M.accent, [0, 0, -0.9]);
+  const boomMat = new THREE.MeshStandardMaterial({ color: 0x343a46, roughness: 0.38, metalness: 0.75 });
+  const boom = lathe([[0, 5.2], [0.2, 4.9], [0.5, 3.4], [0.6, 1.0], [0.6, -2.6], [0.48, -3.5], [0, -3.5]], 20);
+  const pylon = new THREE.BoxGeometry(1.5, 0.14, 2.2);
+  for (let i = 0; i < 3; i++) {
+    const a = (90 + i * 120) * DEG, cx = Math.cos(a), cy = Math.sin(a), R = 2.35;
+    add(root, boom, boomMat, [cx * R, cy * R, 0]);
+    add(root, new THREE.BoxGeometry(0.07, 0.07, 4.6), M.accent, [cx * (R + 0.6), cy * (R + 0.6), -0.6]);
+    add(root, new THREE.TorusGeometry(0.62, 0.05, 8, 24), M.accent, [cx * R, cy * R, 1.2]);
+    add(root, new THREE.TorusGeometry(0.62, 0.05, 8, 24), M.accent, [cx * R, cy * R, -2.4]);
+    add(root, pylon, M.panel, [cx * 1.55, cy * 1.55, -0.3], [0, 0, a]);
+    k.engine(root, cx * R, cy * R, -3.5, 0.52, 13);
+  }
+  add(root, new THREE.TorusGeometry(2.35, 0.07, 8, 60), M.metal, [0, 0, -1.9]);
+  k.lamp(root, 2.1, -1.2, 5.1, [8, 0.5, 0.3]); k.lamp(root, -2.1, -1.2, 5.1, [0.4, 7, 1.2]);
+  return { root, update: k.update, cam: { back: 20, up: 4.8 }, speed: 1.25, agility: 0.78 };
+}
+
+/* Keita Fly: light and quick to turn. Four glass wings that sweep back at speed. */
+function buildKeitaFly() {
+  const k = fleetKit(0xff6b5a, [1.0, 0.55, 0.95]);
+  const { M, root, add } = k;
+  add(root, lathe([[0, 2.3], [0.5, 2.2], [0.74, 1.2], [0.62, -0.4], [0.36, -2.6], [0.2, -5.2], [0.06, -6.2], [0, -6.2]], 24), M.hull);
+  add(root, new THREE.SphereGeometry(1, 24, 18), M.glass, [0, 0.12, 2.8], null, [0.74, 0.62, 0.86]);
+  add(root, new THREE.SphereGeometry(1, 20, 14), M.accent, [0, 0.42, 0.9], null, [0.42, 0.42, 1.25]);
+  for (let i = 0; i < 6; i++) add(root, new THREE.TorusGeometry(0.47 - i * 0.055, 0.04, 6, 18), M.accent, [0, 0, -1.4 - i * 0.78]);
+  const wingMat = new THREE.MeshStandardMaterial({ color: 0xcff4ff, transparent: true, opacity: 0.26, roughness: 0.1, metalness: 0.8, emissive: 0x39b8d8, emissiveIntensity: 0.3, side: THREE.DoubleSide, depthWrite: false });
+  const fore = [[0, 0.5], [5.9, 1.3], [6.5, 0.7], [5.6, -0.2], [0, -0.5]];
+  const hind = [[0, 0.45], [4.9, -0.5], [5.4, -1.3], [4.3, -1.8], [0, -0.45]];
+  const wings = [];
+  for (const s of [-1, 1]) for (const [pts, z, sweep, dih] of [[fore, 1.35, -0.05, 0.2], [hind, 0.35, 0.08, 0.1]]) {
+    const pivot = new THREE.Group(); pivot.position.set(s * 0.45, 0.25, z); root.add(pivot);
+    const outline = s > 0 ? pts : mirrorX(pts);
+    const w = add(pivot, plate(outline, 0.04), wingMat); w.renderOrder = 4;
+    const spar = s > 0 ? [[0, 0.5], [5.9, 1.3], [5.9, 1.2], [0, 0.38]] : mirrorX([[0, 0.5], [5.9, 1.3], [5.9, 1.2], [0, 0.38]]);
+    if (pts === fore) add(pivot, plate(spar, 0.07), M.accent);
+    else add(pivot, plate(s > 0 ? [[0, 0.45], [4.9, -0.5], [4.9, -0.6], [0, 0.33]] : mirrorX([[0, 0.45], [4.9, -0.5], [4.9, -0.6], [0, 0.33]]), 0.07), M.accent);
+    wings.push({ pivot, s, sweep, dih, fore: pts === fore });
+  }
+  for (const s of [-1, 1]) { add(root, lathe([[0, 0.9], [0.24, 0.6], [0.28, -0.9], [0, -0.9]], 12), M.hull, [s * 0.62, -0.28, 0.2]); k.engine(root, s * 0.62, -0.28, -0.7, 0.3, 10); }
+  k.lamp(root, 0, 0.1, -6.25, [7, 2, 1.5]);
+  function update(dt, time, burn, boost, speedFrac = 0) {
+    k.update(dt, time, burn, boost);
+    for (const w of wings) {
+      const back = speedFrac * (w.fore ? 0.55 : 0.3) + (boost ? 0.12 : 0);
+      w.pivot.rotation.y = w.s * (w.sweep + back);                      // sweep back as speed builds
+      w.pivot.rotation.z = w.s * (w.dih + Math.sin(time * 9 + (w.fore ? 0 : 1.3)) * 0.035 * (0.3 + burn));
+    }
+  }
+  return { root, update, cam: { back: 20, up: 4.4 }, speed: 0.85, agility: 1.35 };
+}
+
+const FLEET = {
+  ship_01: { name: 'Keita One', build: buildKeitaOne },
+  ship_02: { name: 'Keita 3', build: buildKeitaThree },
+  ship_03: { name: 'Keita Fly', build: buildKeitaFly },
+};
+
+/* ------------------------------------------------------------------ */
+/* Sky: stars, the galaxy, the Sun, and dust streaks for speed         */
+/* ------------------------------------------------------------------ */
+function buildSky(farRadius) {
+  const group = new THREE.Group();
+
+  // Milky Way and nebulae: painted once on the GPU, then just a texture
+  const galaxy = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { uAmt: { value: 1 }, uMap: { value: null } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'precision highp float; varying vec2 vUv; uniform float uAmt; uniform sampler2D uMap; void main(){ vec3 t = texture2D(uMap, vUv).rgb; gl_FragColor = vec4(t * t / 3.0 * uAmt, 1.0); }',
+  }));
+  galaxy.scale.setScalar(farRadius * 0.97);
+  galaxy.renderOrder = -10;
+  group.add(galaxy);
+
+  // Stars
+  const N = COARSE ? 5000 : 9000, rnd = mulberry(1977);
+  const pos = new Float32Array(N * 3), col = new Float32Array(N * 3), size = new Float32Array(N);
+  const gn = V3(0.42, 0.78, -0.46).normalize();
+  for (let i = 0; i < N; i++) {
+    let v;
+    do {
+      const z = rnd() * 2 - 1, a = rnd() * Math.PI * 2, r = Math.sqrt(1 - z * z);
+      v = V3(r * Math.cos(a), z, r * Math.sin(a));
+    } while (rnd() > 0.35 + 0.65 * Math.exp(-Math.pow(v.dot(gn), 2) * 10));   // denser along the galactic plane
+    pos.set([v.x, v.y, v.z], i * 3);
+    const m = Math.pow(rnd(), 9);                    // few bright, many faint
+    size[i] = 1.0 + m * 3.6;
+    const tint = rnd();
+    const c = tint < 0.18 ? [1.0, 0.72, 0.52] : tint < 0.42 ? [1.0, 0.93, 0.82] : tint < 0.8 ? [0.95, 0.97, 1.0] : [0.7, 0.82, 1.0];
+    const lum = 0.35 + m * 4.5 + rnd() * 0.4;
+    col.set([c[0] * lum, c[1] * lum, c[2] * lum], i * 3);
+  }
+  const sg = new THREE.BufferGeometry();
+  sg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  sg.setAttribute("aColor", new THREE.BufferAttribute(col, 3));
+  sg.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+  const stars = new THREE.Points(sg, new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uPx: { value: 1 }, uAmt: { value: 1 } },
+    vertexShader: 'attribute float aSize; attribute vec3 aColor; varying vec3 vC; uniform float uPx; void main(){ vC = aColor; gl_PointSize = aSize * uPx; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'precision highp float; varying vec3 vC; uniform float uAmt; void main(){ vec2 c = gl_PointCoord - 0.5; float d = length(c) * 2.0; float a = smoothstep(1.0, 0.0, d); gl_FragColor = vec4(vC * a * a * uAmt, 1.0); }',
+  }));
+  stars.scale.setScalar(farRadius * 0.95);
+  stars.frustumCulled = false;
+  group.add(stars);
+
+  // The Sun: a billboard at the sky's edge whose disc shrinks with distance, as it really would
+  const sun = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uCore: { value: 0.02 }, uGlow: { value: 1 }, uAspect: { value: 1 } },
+    vertexShader: 'varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */`
+      precision highp float; varying vec2 vP; uniform float uCore; uniform float uGlow;
+      void main(){
+        float r = length(vP);
+        float core = smoothstep(uCore * 1.25, uCore * 0.8, r) * 26.0;
+        float glow = exp(-r * r * 160.0) * 2.4 + exp(-r * 11.0) * 0.3 + pow(clamp(1.0 - r, 0.0001, 1.0), 5.0) * 0.05;
+        float streak = exp(-abs(vP.y) * 170.0) * exp(-abs(vP.x) * 4.0) * 0.9;
+        float spikes = exp(-abs(vP.x * 0.7071 + vP.y * 0.7071) * 220.0) * exp(-r * 7.0) * 0.5 + exp(-abs(vP.x * 0.7071 - vP.y * 0.7071) * 220.0) * exp(-r * 7.0) * 0.5;
+        float fade = smoothstep(1.0, 0.75, r);
+        vec3 col = vec3(1.0, 0.95, 0.86) * core + vec3(1.0, 0.86, 0.68) * (glow + streak + spikes) * uGlow;
+        gl_FragColor = vec4(col * fade, 1.0);
+      }`,
+  }));
+  sun.renderOrder = -5; sun.frustumCulled = false;
+  const SUN_HALF = 0.26;                              // billboard half-size in radians
+  const SUN_DIST = farRadius * 0.9;
+  sun.scale.setScalar(Math.tan(SUN_HALF) * SUN_DIST);
+  group.add(sun);
+
+  function placeSun(camera, sunDir, au, pxPerRad) {
+    sun.position.copy(sunDir).multiplyScalar(SUN_DIST);       // group follows the camera
+    sun.quaternion.copy(camera.quaternion);
+    const realRad = 0.00465 / au;                              // the Sun's true angular radius
+    const minRad = 1.6 / pxPerRad;                             // never smaller than a bright star
+    sun.material.uniforms.uCore.value = Math.max(realRad * 1.8, minRad) / SUN_HALF;
+    sun.material.uniforms.uGlow.value = clamp(1.25 / Math.pow(au, 0.42), 0.28, 1.3);
+  }
+
+  // Dust streaks
+  const SN = COARSE ? 700 : 1400, BOX = 520;
+  const sp = new Float32Array(SN * 2 * 3), se = new Float32Array(SN * 2);
+  for (let i = 0; i < SN; i++) {
+    const x = rnd() - 0.5, y = rnd() - 0.5, z = rnd() - 0.5;
+    sp.set([x, y, z, x, y, z], i * 6); se[i * 2] = 0; se[i * 2 + 1] = 1;
+  }
+  const lg = new THREE.BufferGeometry();
+  lg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  lg.setAttribute('aEnd', new THREE.BufferAttribute(se, 1));
+  const streaks = new THREE.LineSegments(lg, new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uOffset: { value: V3() }, uVel: { value: V3() }, uBox: { value: BOX }, uAmt: { value: 0 } },
+    vertexShader: /* glsl */`
+      attribute float aEnd; uniform vec3 uOffset; uniform vec3 uVel; uniform float uBox; varying float vA;
+      void main(){
+        vec3 p = mod(position * uBox - uOffset + uBox * 0.5, uBox) - uBox * 0.5;
+        float edge = 1.0 - smoothstep(0.35, 0.5, length(p) / uBox);
+        p -= uVel * aEnd;
+        vA = edge * (1.0 - aEnd * 0.85);
+        gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+      }`,
+    fragmentShader: 'precision highp float; varying float vA; uniform float uAmt; void main(){ gl_FragColor = vec4(vec3(0.75, 0.86, 1.0) * vA * uAmt, 1.0); }',
+  }));
+  streaks.frustumCulled = false;
+
+  return { group, galaxy, stars, sun, placeSun, streaks, BOX };
+}
+
+/* ------------------------------------------------------------------ */
+/* Kartu belajar: penjelasan tiap dunia untuk anak-anak                */
+/* g = gravitasi dibanding Bumi, diam = diameter dalam km              */
+/* ------------------------------------------------------------------ */
+const EARTH_DIAM = 12742;
+const LEARN = {
+  merkurius: {
+    kind: 'Planet batuan', diam: 4879, g: 0.38,
+    intro: 'Merkurius adalah planet paling kecil dan paling dekat dengan Matahari. Karena hampir tidak punya udara, siangnya panas sekali dan malamnya dingin membeku.',
+    facts: [['Jarak dari Matahari', '58 juta km'], ['Satu tahun', '88 hari Bumi'], ['Satu putaran', '59 hari Bumi'], ['Diameter', '4.879 km'], ['Suhu', '−180 sampai 430 °C'], ['Bulan', 'Tidak punya']],
+    fun: ['Merkurius cuma sedikit lebih besar daripada Bulan kita.', 'Dari sini Matahari tampak kira-kira tiga kali lebih besar daripada dari Bumi.', 'Satu tahun di Merkurius lebih pendek daripada tiga bulan di Bumi.'],
+  },
+  venus: {
+    kind: 'Planet batuan', diam: 12104, g: 0.90,
+    intro: 'Venus hampir sebesar Bumi, tapi udaranya sangat tebal dan penuh gas karbon dioksida. Udara itu memerangkap panas, sehingga Venus menjadi planet terpanas.',
+    facts: [['Jarak dari Matahari', '108 juta km'], ['Satu tahun', '225 hari Bumi'], ['Satu putaran', '243 hari Bumi'], ['Diameter', '12.104 km'], ['Suhu', 'Sekitar 465 °C'], ['Bulan', 'Tidak punya']],
+    fun: ['Satu hari di Venus lebih lama daripada satu tahunnya.', 'Venus berputar terbalik. Di sana Matahari terbit di barat dan terbenam di timur.', 'Dari Bumi, Venus terlihat sangat terang dan sering disebut Bintang Kejora.'],
+  },
+  bumi: {
+    kind: 'Planet batuan', diam: 12742, g: 1, cmp: 'bulan',
+    intro: 'Bumi adalah rumah kita. Sejauh yang kita tahu, hanya di sini ada makhluk hidup. Jaraknya dari Matahari pas, tidak terlalu panas dan tidak terlalu dingin, sehingga air bisa tetap cair.',
+    facts: [['Jarak dari Matahari', '150 juta km'], ['Satu tahun', '365 hari'], ['Satu putaran', '24 jam'], ['Diameter', '12.742 km'], ['Suhu rata-rata', '15 °C'], ['Bulan', '1']],
+    fun: ['Sekitar 71% permukaan Bumi tertutup air.', 'Bumi miring 23,5 derajat. Kemiringan itulah yang menciptakan musim.', 'Udara Bumi melindungi kita. Sebagian besar batu angkasa kecil terbakar habis sebelum sampai ke tanah.'],
+  },
+  bulan: {
+    kind: 'Satelit alami Bumi', diam: 3475, g: 0.17,
+    intro: 'Bulan adalah satu-satunya satelit alami Bumi, dan satu-satunya dunia lain yang pernah diinjak manusia. Bulan tidak bercahaya sendiri. Ia memantulkan cahaya Matahari.',
+    facts: [['Jarak dari Bumi', '384.400 km'], ['Mengitari Bumi', '27,3 hari'], ['Diameter', '3.475 km'], ['Suhu', '−173 sampai 127 °C'], ['Udara', 'Hampir tidak ada']],
+    fun: ['Dua belas astronaut pernah berjalan di Bulan, antara tahun 1969 dan 1972.', 'Dari Bumi kita selalu melihat sisi Bulan yang sama.', 'Di Bulan tidak ada angin, jadi jejak kaki astronaut bisa bertahan sangat lama.'],
+  },
+  mars: {
+    kind: 'Planet batuan', diam: 6779, g: 0.38,
+    intro: 'Mars dijuluki Planet Merah. Warnanya berasal dari debu berkarat yang menutupi permukaannya. Mars dingin dan kering, tapi dulu pernah punya sungai dan danau.',
+    facts: [['Jarak dari Matahari', '228 juta km'], ['Satu tahun', '687 hari Bumi'], ['Satu putaran', '24 jam 37 menit'], ['Diameter', '6.779 km'], ['Suhu rata-rata', '−63 °C'], ['Bulan', '2: Phobos dan Deimos']],
+    fun: ['Gunung Olympus di Mars tingginya hampir 22 km, kira-kira dua setengah kali Gunung Everest.', 'Robot penjelajah seperti Curiosity dan Perseverance meneliti batu dan tanah Mars.', 'Satu hari di Mars hampir sama panjangnya dengan satu hari di Bumi.'],
+  },
+  jupiter: {
+    kind: 'Raksasa gas', diam: 139820, g: 2.53, gNote: 'Jupiter tidak punya tanah, jadi ini dihitung di puncak awannya.',
+    intro: 'Jupiter adalah planet terbesar di tata surya. Ia tidak punya tanah untuk dipijak, karena hampir seluruhnya terbuat dari gas hidrogen dan helium.',
+    facts: [['Jarak dari Matahari', '778 juta km'], ['Satu tahun', '11,9 tahun Bumi'], ['Satu putaran', '9 jam 56 menit'], ['Diameter', '139.820 km'], ['Suhu puncak awan', '−110 °C'], ['Bulan', 'Lebih dari 100']],
+    fun: ['Lebih dari 1.300 Bumi bisa muat di dalam Jupiter.', 'Bintik Merah Besar adalah badai raksasa yang sudah berputar lebih dari 150 tahun.', 'Jupiter berputar paling cepat di antara semua planet. Satu harinya tidak sampai 10 jam.'],
+    note: 'Jumlah bulan terus bertambah karena para astronom masih menemukan yang baru.',
+  },
+  io: {
+    kind: 'Bulan Jupiter', diam: 3643, g: 0.18,
+    intro: 'Io adalah salah satu dari empat bulan besar Jupiter. Tarikan Jupiter meremas bagian dalam Io sampai panas, sehingga gunung apinya terus meletus.',
+    facts: [['Jarak dari Jupiter', '421.700 km'], ['Mengitari Jupiter', '1,8 hari'], ['Diameter', '3.643 km'], ['Suhu permukaan', 'Sekitar −130 °C'], ['Gunung api aktif', 'Lebih dari 400']],
+    fun: ['Io adalah tempat dengan gunung api paling aktif di seluruh tata surya.', 'Warna kuning dan jingga di permukaannya berasal dari belerang.', 'Io ditemukan Galileo Galilei pada tahun 1610.'],
+  },
+  saturnus: {
+    kind: 'Raksasa gas', diam: 116460, g: 1.06, gNote: 'Saturnus tidak punya tanah, jadi ini dihitung di puncak awannya.',
+    intro: 'Saturnus adalah planet terbesar kedua dan paling terkenal karena cincinnya. Cincin itu bukan benda padat, melainkan miliaran bongkah es dan batu yang mengitari planet.',
+    facts: [['Jarak dari Matahari', '1,43 miliar km'], ['Satu tahun', '29,5 tahun Bumi'], ['Satu putaran', '10 jam 33 menit'], ['Diameter', '116.460 km'], ['Suhu puncak awan', '−140 °C'], ['Bulan', 'Lebih dari 280, terbanyak']],
+    fun: ['Saturnus sangat ringan untuk ukurannya. Kalau ada bak air yang cukup besar, Saturnus akan mengapung.', 'Bongkahan di cincinnya ada yang sekecil butir pasir dan ada yang sebesar rumah.', 'Cincinnya lebar sekali tapi sangat tipis, di banyak tempat cuma sekitar 10 meter.'],
+    note: 'Jumlah bulan terus bertambah karena para astronom masih menemukan yang baru.',
+  },
+  titan: {
+    kind: 'Bulan Saturnus', diam: 5150, g: 0.14,
+    intro: 'Titan adalah bulan terbesar Saturnus, bahkan lebih besar daripada planet Merkurius. Titan satu-satunya bulan yang punya udara tebal.',
+    facts: [['Jarak dari Saturnus', '1,2 juta km'], ['Mengitari Saturnus', '16 hari'], ['Diameter', '5.150 km'], ['Suhu', '−179 °C'], ['Udara', 'Tebal, kebanyakan nitrogen']],
+    fun: ['Di Titan ada hujan, sungai, dan danau, tapi isinya metana cair, bukan air.', 'Langit Titan berwarna jingga dan berkabut.', 'Wahana Huygens mendarat di Titan pada tahun 2005.'],
+  },
+  uranus: {
+    kind: 'Raksasa es', diam: 50724, g: 0.89, gNote: 'Uranus tidak punya tanah, jadi ini dihitung di puncak awannya.',
+    intro: 'Uranus adalah raksasa es berwarna biru kehijauan. Yang paling aneh, Uranus berputar sambil rebah, seperti bola yang menggelinding.',
+    facts: [['Jarak dari Matahari', '2,87 miliar km'], ['Satu tahun', '84 tahun Bumi'], ['Satu putaran', '17 jam 14 menit'], ['Diameter', '50.724 km'], ['Suhu', '−195 °C'], ['Bulan', 'Hampir 30']],
+    fun: ['Poros Uranus miring 98 derajat. Para ilmuwan menduga dulu ia ditabrak benda sebesar Bumi.', 'Uranus adalah planet pertama yang ditemukan dengan teleskop, pada tahun 1781.', 'Baru satu wahana yang pernah mampir ke sini, yaitu Voyager 2 pada tahun 1986.'],
+  },
+  neptunus: {
+    kind: 'Raksasa es', diam: 49244, g: 1.14, gNote: 'Neptunus tidak punya tanah, jadi ini dihitung di puncak awannya.',
+    intro: 'Neptunus adalah planet terjauh dari Matahari. Di sini gelap, dingin, dan anginnya sangat kencang.',
+    facts: [['Jarak dari Matahari', '4,5 miliar km'], ['Satu tahun', '165 tahun Bumi'], ['Satu putaran', '16 jam 7 menit'], ['Diameter', '49.244 km'], ['Suhu', '−200 °C'], ['Bulan', '16']],
+    fun: ['Angin di Neptunus bisa lebih dari 2.000 km per jam, tercepat di tata surya.', 'Neptunus ditemukan lewat hitungan matematika pada tahun 1846, sebelum ada yang melihatnya.', 'Cahaya Matahari butuh lebih dari 4 jam untuk sampai ke sini.'],
+  },
+  triton: {
+    kind: 'Bulan Neptunus', diam: 2707, g: 0.08,
+    intro: 'Triton adalah bulan terbesar Neptunus. Ia mengitari Neptunus berlawanan arah dengan putaran planetnya, hal yang tidak dilakukan bulan besar lain.',
+    facts: [['Jarak dari Neptunus', '354.800 km'], ['Mengitari Neptunus', '5,9 hari'], ['Diameter', '2.707 km'], ['Suhu', '−235 °C']],
+    fun: ['Triton termasuk tempat terdingin yang pernah diukur di tata surya.', 'Dari permukaannya menyembur geiser gas nitrogen setinggi beberapa kilometer.', 'Para ilmuwan menduga Triton dulunya benda dari tepi tata surya yang tertangkap Neptunus.'],
+  },
+  sabuk: {
+    kind: 'Kumpulan asteroid', diam: 940, diamName: 'Ceres', g: null,
+    intro: 'Sabuk Asteroid adalah daerah di antara Mars dan Jupiter yang berisi jutaan batu angkasa. Batu-batu ini sisa bahan pembentuk planet yang tidak pernah bergabung menjadi planet.',
+    facts: [['Letak', 'Antara Mars dan Jupiter'], ['Jarak dari Matahari', '330 sampai 480 juta km'], ['Benda terbesar', 'Ceres, 940 km'], ['Jumlah asteroid', 'Jutaan']],
+    fun: ['Kalau semua asteroid di sabuk ini digabung, hasilnya masih lebih kecil daripada Bulan.', 'Ceres begitu besar sampai digolongkan sebagai planet kerdil.', 'Di dunia nyata asteroid di sini berjauhan sekali. Di game ini jaraknya dirapatkan supaya seru.'],
+  },
+  galangan: {
+    kind: 'Tempat fiksi', diam: null, g: null,
+    intro: 'Galangan Farshore adalah tempat karangan di game ini, jadi tidak ada di dunia nyata. Dalam cerita game, di sinilah kapal Meridian dirakit sebelum berlayar.',
+    facts: [['Ketinggian', '1.950 km di atas Bumi'], ['Kapal di dok', 'Meridian'], ['Cincin awak', '4 putaran per menit']],
+    fun: ['Stasiun luar angkasa sungguhan juga ada. Stasiun Luar Angkasa Internasional mengorbit sekitar 400 km di atas Bumi.', 'Astronaut di orbit melayang karena mereka terus jatuh mengelilingi Bumi.', 'Cincin yang berputar di kapal Meridian adalah cara membuat gravitasi buatan untuk awaknya.'],
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/* Farshore: free flight through a compressed solar system             */
+/* 1 unit = 16 km. Planet sizes are true to each other; the gaps       */
+/* between them are squeezed so they can be flown in minutes.          */
+/* ------------------------------------------------------------------ */
+const UNIT_KM = 16, FAR = 700000, C_KMS = 299792;
+const SUN_DIR = V3(-0.80, 0.28, 0.53).normalize();
+const P = (x, y, z) => V3(x, y, z);
+const JUP = P(96000, -6000, 30000), SAT = P(152000, 9000, -42000), NEP = P(258000, 6000, -22000);
+
+const WORLDS = [
+  { id: 'merkurius', name: 'Merkurius', code: 'Me', kind: 'mercury', radius: 152, pos: P(-64000, 1500, 16000), bump: 0.02, term: 0.0, detail: 0.5, sun: [1.85, 1.68, 1.5], tilt: [0.1, 2.0, 0], tint: '#b9aa98',
+    line: 'Planet terkecil dan terdekat dari Matahari. Permukaannya penuh kawah.', facts: [['Diameter', '4.879 km'], ['Gravitasi', '0,38 g'], ['Satu putaran', '59 hari Bumi']] },
+  { id: 'venus', name: 'Venus', code: 'Ve', kind: 'venus', radius: 378, pos: P(-35000, -2500, -17000), term: 0.16, detail: 0.12, limb: 0.7, sun: [2.0, 1.9, 1.7], tilt: [0.05, 0, 0.05], tint: '#e8cf96',
+    atmo: [1.0, 0.85, 0.55], atmoAmt: 0.22, atmoPow: 3.5, halo: { h: 0.008, shell: 1.05, color: [1.0, 0.8, 0.5], amt: 0.45 },
+    line: 'Terbungkus awan asam sulfat yang tebal. Planet terpanas di tata surya.', facts: [['Diameter', '12.104 km'], ['Gravitasi', '0,90 g'], ['Satu putaran', '243 hari Bumi']] },
+  { id: 'bumi', name: 'Bumi', code: 'Bu', kind: 'earth', radius: 398, pos: P(0, 0, 0), hi: true, tilt: [0.5, 0, 0.9], tint: '#6fa8ff',
+    halo: { h: 0.010, shell: 1.07, color: [0.16, 0.42, 1.0], sunset: [1.0, 0.42, 0.12], amt: 1.0 },
+    line: 'Rumah. Satu-satunya dunia yang kita tahu punya lautan di permukaannya.', facts: [['Diameter', '12.742 km'], ['Gravitasi', '1 g'], ['Satu putaran', '24 jam']] },
+  { id: 'bulan', name: 'Bulan', code: 'Bl', kind: 'moon', radius: 109, pos: P(14200, 2400, 19200), bump: 0.02, term: 0.0, detail: 0.5, sun: [1.9, 1.85, 1.75], tilt: [0.3, 1.2, 0.1], tint: '#cfd3dc', minor: true,
+    line: 'Jaraknya dari Bumi di sini sesuai skala: 384.400 km.', facts: [['Diameter', '3.475 km'], ['Gravitasi', '0,17 g'], ['Satu putaran', '27,3 hari']] },
+  { id: 'mars', name: 'Mars', code: 'Ma', kind: 'mars', radius: 212, pos: P(43000, 3500, -25000), bump: 0.012, term: 0.05, detail: 0.35, sun: [1.75, 1.68, 1.58], tilt: [0.2, 0, 0.44], tint: '#f08a5d',
+    atmo: [0.95, 0.55, 0.32], atmoAmt: 0.13, atmoPow: 3.4, halo: { h: 0.008, shell: 1.05, color: [0.85, 0.5, 0.3], sunset: [0.35, 0.5, 0.9], amt: 0.2 },
+    line: 'Gurun dingin berwarna karat, dengan gunung api setinggi 22 km.', facts: [['Diameter', '6.779 km'], ['Gravitasi', '0,38 g'], ['Satu putaran', '24 j 37 m']] },
+  { id: 'jupiter', name: 'Jupiter', code: 'Ju', kind: 'jupiter', radius: 4369, pos: JUP, hi: true, term: 0.12, detail: 0.14, limb: 0.9, sun: [2.0, 1.95, 1.85], tilt: [0.05, 0, 0.055], tint: '#e6bd92',
+    atmo: [0.9, 0.75, 0.55], atmoAmt: 0.1, atmoPow: 4, moonShadow: true, halo: { h: 0.004, shell: 1.03, color: [0.8, 0.65, 0.5], amt: 0.22 },
+    line: 'Raksasa gas. Bintik Merah Besarnya masih lebih lebar daripada Bumi.', facts: [['Diameter', '139.820 km'], ['Gravitasi', '2,53 g'], ['Satu putaran', '9 j 56 m']] },
+  { id: 'io', name: 'Io', code: 'Io', kind: 'mercury', radius: 114, pos: JUP.clone().addScaledVector(SUN_DIR, 26300).add(P(300, 1500, 600)), bump: 0.008, term: 0.02, detail: 0.5, sun: [2.3, 1.95, 0.9], tilt: [0.4, 0.3, 0], tint: '#e3c85a', minor: true,
+    line: 'Bulan paling vulkanik di tata surya. Bayangannya jatuh di awan Jupiter.', facts: [['Diameter', '3.643 km'], ['Gravitasi', '0,18 g'], ['Mengitari Jupiter', '1,8 hari']] },
+  { id: 'saturnus', name: 'Saturnus', code: 'Sa', kind: 'saturn', radius: 3640, pos: SAT, hi: true, squash: 0.9, term: 0.12, detail: 0.1, limb: 0.9, sun: [1.7, 1.62, 1.5], tilt: [0.36, 0, 0.3], tint: '#ecd28f',
+    atmo: [0.95, 0.85, 0.6], atmoAmt: 0.1, atmoPow: 4, rings: true,
+    line: 'Cincinnya selebar 270.000 km, tapi di banyak tempat tebalnya cuma sepuluh meter.', facts: [['Diameter', '116.460 km'], ['Gravitasi', '1,06 g'], ['Satu putaran', '10 j 33 m']] },
+  { id: 'titan', name: 'Titan', code: 'Ti', kind: 'venus', radius: 161, pos: SAT.clone().add(P(-15000, 5200, -13500)), term: 0.2, detail: 0.1, limb: 0.6, sun: [2.1, 1.35, 0.6], tilt: [0, 0.5, 0.2], tint: '#e0a650', minor: true,
+    atmo: [1.0, 0.6, 0.2], atmoAmt: 0.3, atmoPow: 3, halo: { h: 0.03, shell: 1.14, color: [0.9, 0.55, 0.2], amt: 0.5 },
+    line: 'Satu-satunya bulan dengan atmosfer tebal, lengkap dengan hujan metana.', facts: [['Diameter', '5.150 km'], ['Gravitasi', '0,14 g'], ['Mengitari Saturnus', '16 hari']] },
+  { id: 'uranus', name: 'Uranus', code: 'Ur', kind: 'uranus', radius: 1585, pos: P(207000, -12000, 36000), term: 0.14, detail: 0.08, limb: 0.9, sun: [1.9, 2.0, 2.0], tilt: [0, 0, 1.71], tint: '#9fdfe6',
+    atmo: [0.5, 0.9, 0.95], atmoAmt: 0.28, atmoPow: 3.4, halo: { h: 0.010, shell: 1.06, color: [0.4, 0.8, 0.9], amt: 0.4 },
+    line: 'Raksasa es yang berputar rebah: porosnya miring 98 derajat.', facts: [['Diameter', '50.724 km'], ['Gravitasi', '0,89 g'], ['Satu putaran', '17 j 14 m']] },
+  { id: 'neptunus', name: 'Neptunus', code: 'Ne', kind: 'neptune', radius: 1539, pos: NEP, term: 0.14, detail: 0.1, limb: 0.9, sun: [1.9, 1.9, 2.05], tilt: [0.1, 0, 0.49], tint: '#6f9bff',
+    atmo: [0.3, 0.5, 1.0], atmoAmt: 0.45, atmoPow: 3.2, halo: { h: 0.012, shell: 1.07, color: [0.2, 0.4, 1.0], amt: 0.55 },
+    line: 'Planet terjauh. Anginnya yang tercepat di tata surya, lebih dari 2.000 km/jam.', facts: [['Diameter', '49.244 km'], ['Gravitasi', '1,14 g'], ['Satu putaran', '16 j 7 m']] },
+  { id: 'triton', name: 'Triton', code: 'Tr', kind: 'moon', radius: 85, pos: NEP.clone().add(P(-13000, 9000, 15500)), bump: 0.012, term: 0.02, detail: 0.5, sun: [2.0, 1.75, 1.7], tilt: [1.0, 2.2, 0.4], tint: '#d9c2ba', minor: true,
+    line: 'Mengitari Neptunus melawan arah, dengan geiser nitrogen di kutubnya.', facts: [['Diameter', '2.707 km'], ['Gravitasi', '0,08 g'], ['Mengitari Neptunus', '5,9 hari']] },
+];
+const DOCK_POS = P(0, 520, 0), BELT_POS = P(70000, 800, 3000);
+const PLACES = [
+  { id: 'galangan', name: 'Galangan Farshore', code: 'Fs', pos: DOCK_POS, radius: 30, tint: '#ffb648', place: true, reach: 420,
+    line: 'Dok orbit tempat kapal Meridian dirakit. Titik awal setiap penjelajahan.', facts: [['Ketinggian', '1.950 km'], ['Kapal di dok', 'Meridian'], ['Cincin awak', '4 putaran/menit']] },
+  { id: 'sabuk', name: 'Sabuk Asteroid', code: 'As', pos: BELT_POS, radius: 7500, tint: '#b7a892', place: true, reach: 2500,
+    line: 'Bongkahan batu dan logam sisa pembentukan planet. Terbang pelan-pelan di sini.', facts: [['Letak', 'Antara Mars dan Jupiter'], ['Batu terbesar', 'Ceres, 940 km'], ['Jumlah', 'Jutaan']] },
+];
+const SPAWN = { position: { x: 46, y: 532, z: -92 }, rotation: { x: 0.38, y: -0.22, z: 0 } };
+const DEFAULT_SETTINGS = { selectedShip: 'ship_01', soundEnabled: true, hudOpacity: 0.8, autoLearn: true };
+
+function boot(hot = {}) {
+  const canvas = document.getElementById('scene');
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', alpha: false }); }
+  catch (err) { document.body.classList.add('no-gl'); return; }
+  const STILL = params.has('still');
+  // integrated and mobile GPUs start on the lighter settings; anything that still struggles steps down further
+  let lowPower = COARSE;
+  try { const gl = renderer.getContext(), ext = gl.getExtension('WEBGL_debug_renderer_info'); if (ext && /Intel|UHD|Iris|Mali|Adreno|PowerVR|SwiftShader|llvmpipe|Basic Render/i.test(String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)))) lowPower = true; } catch (err) { /* keep the default */ }
+  let pxScale = Math.min(window.devicePixelRatio || 1, lowPower ? 1.25 : 1.5), msaa = lowPower ? 0 : 4;
+  if (params.has('dpr')) pxScale = parseFloat(params.get('dpr'));
+  renderer.setPixelRatio(pxScale);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.setClearColor(0x000000, 1);
+
+  const $ = (q, el = document) => el.querySelector(q), $$ = (q, el = document) => [...el.querySelectorAll(q)];
+  const nf0 = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
+  const nf1 = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const nf2 = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtKm = (km) => km >= 1e6 ? `${nf2.format(km / 1e6)} juta km` : `${nf0.format(Math.max(0, km))} km`;
+
+  /* -- storage: localStorage, with an in-memory fallback -------------- */
+  const mem = {}; let storageOk = true;
+  const store = {
+    get(key) { try { const v = window.localStorage.getItem(key); return v ? JSON.parse(v) : (mem[key] ?? null); } catch (err) { storageOk = false; return mem[key] ?? null; } },
+    set(key, value) { mem[key] = value; try { window.localStorage.setItem(key, JSON.stringify(value)); return true; } catch (err) { storageOk = false; return false; } },
+    remove(key) { delete mem[key]; try { window.localStorage.removeItem(key); } catch (err) { storageOk = false; } },
+  };
+  const settings = { ...DEFAULT_SETTINGS, ...(store.get('playerSettings') || {}) };
+  if (!FLEET[settings.selectedShip]) settings.selectedShip = 'ship_01';
+  let saved = hot.gameState || store.get('gameState');
+  const validSave = (g) => g && g.position && [g.position.x, g.position.y, g.position.z].every(Number.isFinite) && g.rotation;
+  if (!validSave(saved)) saved = null;
+  const visited = new Set(saved?.visited || []);
+
+  /* -- scene ---------------------------------------------------------- */
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.5, FAR);
+  scene.add(camera);
+  const shared = { noise: makeNoiseTexture(), ring: makeRingTexture() };
+  const texSize = params.has('tex') ? parseInt(params.get('tex'), 10) : (COARSE ? 1024 : 2048);
+  const universe = new THREE.Group(); scene.add(universe);
+
+  const worlds = WORLDS.map((def) => { const w = makeWorld(def, shared); w.group.position.copy(def.pos); w.group.visible = false; universe.add(w.group); return w; });
+  const byId = Object.fromEntries(worlds.map((w) => [w.def.id, w]));
+  byId.jupiter.shadowCaster = { pos: byId.io.def.pos, radius: byId.io.def.radius };   // Io's shadow on Jupiter
+  const bodies = [...worlds.map((w) => w.def), ...PLACES];
+  const TOTAL = bodies.length;
+
+  // the yard, with Meridian in the slip
+  const dock = buildDock(); dock.group.position.copy(DOCK_POS); universe.add(dock.group);
+  const meridian = buildShip(); dock.group.add(meridian.root);
+
+  // asteroid field
+  let belt;
+  {
+    const geo = new THREE.IcosahedronGeometry(1, 2), pa = geo.attributes.position, rnd = mulberry(909), v = V3();
+    for (let i = 0; i < pa.count; i++) {
+      v.fromBufferAttribute(pa, i);
+      const n = 1 + 0.26 * Math.sin(v.x * 3.1 + 1.3) * Math.sin(v.y * 2.7 + 0.4) + 0.2 * Math.sin(v.z * 5.3 + v.x * 2.1) + 0.1 * Math.sin(v.y * 9.1 + v.z * 7.7);
+      pa.setXYZ(i, v.x * n, v.y * n * 0.82, v.z * n);
+    }
+    geo.computeVertexNormals();
+    const COUNT = COARSE ? 260 : 460;
+    belt = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0x8a7d70, roughness: 0.95, metalness: 0.1, flatShading: true }), COUNT);
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = V3(), col = new THREE.Color();
+    for (let i = 0; i < COUNT; i++) {
+      const a = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 7500;
+      v.set(Math.cos(a) * r, (rnd() - 0.5) * 1500 * (1 - r / 12000), Math.sin(a) * r);
+      const size = 8 + Math.pow(rnd(), 4) * 240;
+      s.set(size * (0.7 + rnd() * 0.6), size * (0.6 + rnd() * 0.5), size * (0.7 + rnd() * 0.6));
+      q.setFromEuler(e.set(rnd() * 6.3, rnd() * 6.3, rnd() * 6.3));
+      belt.setMatrixAt(i, m4.compose(v, q, s));
+      const tone = 0.6 + rnd() * 0.5; belt.setColorAt(i, col.setRGB(tone, tone * (0.9 + rnd() * 0.1), tone * (0.8 + rnd() * 0.15)));
+    }
+    belt.position.copy(BELT_POS); belt.frustumCulled = false; universe.add(belt);
+  }
+
+  const sky = buildSky(FAR); scene.add(sky.group); scene.add(sky.streaks);
+
+  // the player's ship sits at the origin; the universe moves around it
+  const player = new THREE.Group(), bank = new THREE.Group(); player.add(bank); scene.add(player);
+  const fleet = {}; let craft = null;
+  function selectShip(id, save = true) {
+    if (!fleet[id]) { fleet[id] = FLEET[id].build(); bank.add(fleet[id].root); }
+    for (const k in fleet) fleet[k].root.visible = k === id;
+    craft = fleet[id]; settings.selectedShip = id;
+    const chip = document.getElementById('ship-chip'); if (chip) chip.textContent = FLEET[id].name;
+    if (save) store.set('playerSettings', settings);
+  }
+  selectShip(settings.selectedShip, false);
+
+  const sunLight = new THREE.DirectionalLight(0xfff4e6, 2.9); sunLight.position.copy(SUN_DIR).multiplyScalar(100); scene.add(sunLight);
+  const fillLight = new THREE.DirectionalLight(0x3f74d8, 0.0); scene.add(fillLight, fillLight.target);
+  scene.add(new THREE.AmbientLight(0x8fa0c0, 0.06));
+  {
+    const envScene = new THREE.Scene();
+    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      vertexShader: 'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `precision highp float; varying vec3 vD; void main(){ vec3 d = normalize(vD); vec3 s = normalize(vec3(${SUN_DIR.x.toFixed(3)}, ${SUN_DIR.y.toFixed(3)}, ${SUN_DIR.z.toFixed(3)}));
+        float sd = max(dot(d, s), 0.0); float sun = pow(sd, 900.0) * 400.0 + pow(sd, 10.0) * 0.5;
+        float below = smoothstep(0.25, -0.7, d.y);
+        gl_FragColor = vec4(vec3(1.0, 0.95, 0.88) * sun + vec3(0.10, 0.15, 0.28) * below * 1.1 + vec3(0.02, 0.022, 0.03), 1.0); }`,
+    })));
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(envScene, 0.03).texture; scene.environmentIntensity = 0.75;
+    pmrem.dispose();
+  }
+
+  const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: msaa }));
+  const renderPass = new RenderPass(scene, camera);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(4, 4), 0.42, 0.6, 1.0);
+  const finalPass = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uAberr: { value: 0.0 }, uGrain: { value: 0.04 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */`
+      precision highp float; uniform sampler2D tDiffuse; uniform float uTime, uAberr, uGrain; varying vec2 vUv;
+      float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+      void main(){
+        vec2 c = vUv - 0.5; float r2 = dot(c, c);
+        vec2 off = c * (0.0012 + uAberr) * r2 * 4.0;
+        vec3 col = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+        col *= mix(1.0, smoothstep(0.95, 0.25, length(c)), 0.45);
+        col += (h21(gl_FragCoord.xy + fract(uTime) * 91.7) - 0.5) * uGrain;
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+  // scrub any invalid pixel before bloom can spread it
+  const scrubPass = new ShaderPass({
+    uniforms: { tDiffuse: { value: null } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'precision highp float; uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec3 c = texture2D(tDiffuse, vUv).rgb; if (any(isnan(c)) || any(isinf(c)) || !(c.r >= 0.0 && c.g >= 0.0 && c.b >= 0.0)) c = vec3(0.0); gl_FragColor = vec4(min(c, vec3(120.0)), 1.0); }',
+  });
+  composer.addPass(renderPass); composer.addPass(scrubPass); composer.addPass(bloom); composer.addPass(new OutputPass()); composer.addPass(finalPass);
+
+  let W = 1, H = 1;
+  function resize() {
+    W = window.innerWidth; H = window.innerHeight;
+    renderer.setSize(W, H, false); composer.setPixelRatio(pxScale); composer.setSize(W, H);
+    camera.aspect = W / H;
+    sky.stars.material.uniforms.uPx.value = pxScale * (H / 900) * 1.15;
+  }
+  window.addEventListener('resize', resize); resize();
+
+  /* -- flight state ---------------------------------------------------- */
+  const pos = V3(), quat = new THREE.Quaternion(), camQ = new THREE.Quaternion(), fwd = V3(), tmp = V3(), tmp2 = V3(), tmp3 = V3();
+  const qInv = new THREE.Quaternion(), dq = new THREE.Quaternion(), eul = new THREE.Euler();
+  let speed = 0, throttle = 0, yawRate = 0, pitchRate = 0, rollRate = 0, burn = 0, boost = false, mode = 'menu', time = 0, last = performance.now(), firstFrame = true, menuSpin = 0;
+  const keys = Object.create(null), stick = { x: 0, y: 0, active: false };
+  let nearest = null, nearestSurf = 0, nearestSolidSurf = 1e9, learnOpen = false;
+  function place(g) {
+    pos.set(g.position.x, g.position.y, g.position.z);
+    quat.setFromEuler(eul.set(g.rotation.x, g.rotation.y, g.rotation.z, 'XYZ')).normalize();
+    camQ.copy(quat); speed = 0; throttle = 0; yawRate = pitchRate = rollRate = 0;
+  }
+  place(saved || SPAWN);
+
+  function snapshot() {
+    eul.setFromQuaternion(quat, 'XYZ');
+    const r = (n) => Math.round(n * 1000) / 1000;
+    return { position: { x: r(pos.x), y: r(pos.y), z: r(pos.z) }, rotation: { x: r(eul.x), y: r(eul.y), z: r(eul.z) }, lastSaved: new Date().toISOString(), visited: [...visited], near: nearest?.name || null };
+  }
+  let started = !!hot.started;
+  function save() { if (!started) return; saved = snapshot(); store.set('gameState', saved); }
+  window.claude?.hot?.snapshot?.(() => ({ gameState: started ? snapshot() : saved, started }));
+
+  const bakeQueue = ['sky', ...new Set(['earth', ...WORLDS.map((w) => w.kind)])];
+  const baked = {};
+  let frames = 0, slowAcc = 0, slowN = 0, saveClock = 0, hudClock = 0;
+  const ui = initUI();
+
+  function simulate(dt) {
+    const sp = craft.speed, ag = craft.agility;
+    // while a learning card is open the ship coasts to a stop so there is time to read
+    if (learnOpen) { for (const k in keys) keys[k] = false; stick.x = stick.y = 0; throttle = Math.abs(throttle) < 0.03 ? 0 : throttle * Math.max(0, 1 - dt * 5); }
+    // steering
+    const yawIn = clamp((keys.a || keys.arrowleft ? 1 : 0) - (keys.d || keys.arrowright ? 1 : 0) - stick.x, -1, 1);
+    const pitchIn = clamp((keys.arrowup || keys.i ? 1 : 0) - (keys.arrowdown || keys.k ? 1 : 0) - stick.y, -1, 1);
+    const rollIn = (keys.q ? 1 : 0) - (keys.e ? 1 : 0);
+    const resp = Math.min(1, dt * 4.5 * ag);
+    yawRate += (yawIn * 0.95 * ag - yawRate) * resp;
+    pitchRate += (pitchIn * 0.85 * ag - pitchRate) * resp;
+    rollRate += (rollIn * 1.7 * ag - rollRate) * resp;
+    dq.setFromEuler(eul.set(-pitchRate * dt, yawRate * dt, -rollRate * dt, 'YXZ'));
+    quat.multiply(dq).normalize();
+    // throttle
+    if (keys.w) throttle = Math.min(1, throttle + dt * 0.7);
+    if (keys.s) throttle = Math.max(-0.25, throttle - dt * 0.7);
+    if (keys[' '] || keys.x) throttle = Math.abs(throttle) < 0.05 ? 0 : throttle * Math.max(0, 1 - dt * 6);
+    boost = !!(keys.shift || keys.boost) && throttle > 0.05;
+    // the closer to a surface, the lower the speed limit: slow near worlds, very fast between them
+    const env = clamp(nearestSolidSurf * 0.85, 45, 7000);
+    const target = throttle * env * sp * (boost ? 2.5 : 1);
+    speed += (target - speed) * Math.min(1, dt * (Math.abs(target) > Math.abs(speed) ? 0.95 : 1.9));
+    fwd.set(0, 0, 1).applyQuaternion(quat);
+    pos.addScaledVector(fwd, speed * dt);
+    // never fly through a world
+    for (const w of worlds) {
+      tmp.copy(pos).sub(w.def.pos); const d = tmp.length(), minD = w.def.radius * 1.012 + 8;
+      if (d < minD) { pos.copy(w.def.pos).addScaledVector(tmp.normalize(), minD); if (tmp.dot(fwd) < 0) speed *= 0.4; }
+    }
+  }
+
+  function survey() {
+    let best = null, bestD = Infinity; nearestSolidSurf = 1e9;
+    for (const b of bodies) {
+      const d = Math.max(0, pos.distanceTo(b.pos) - b.radius);
+      b.surf = d;
+      if (!b.place && d < nearestSolidSurf) nearestSolidSurf = d;
+      const score = b.place ? d + 150 : d;             // prefer a real world when it is a tie
+      if (score < bestD) { bestD = score; best = b; }
+    }
+    nearest = best; nearestSurf = best.surf;
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    let dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (STILL) { dt = 1 / 30; time = 8; } else time += dt;
+    if (bakeQueue.length) {
+      const kind = bakeQueue.shift();
+      baked[kind] = bakePlanet(renderer, kind, kind === 'sky' ? Math.max(2048, texSize) : texSize);
+      if (kind === 'sky') sky.galaxy.material.uniforms.uMap.value = baked.sky;
+      for (const w of worlds) if (w.def.kind === kind) { (kind === 'earth' ? w.mat.uniforms.uData : w.mat.uniforms.uMap).value = baked[kind]; w.baked = true; w.group.visible = true; }
+    }
+    survey();
+    if (mode === 'play') simulate(dt); else { speed += (0 - speed) * Math.min(1, dt * 2); menuSpin += dt * (REDUCED ? 0 : 0.16); }
+
+    // ship and camera
+    const spFrac = clamp(Math.abs(speed) / (7000 * 2.5));
+    const burnT = mode === 'play' ? clamp(Math.max(throttle, 0) * (boost ? 1 : 0.72) + (throttle < -0.02 ? 0.12 : 0)) : 0.06;
+    burn += (burnT - burn) * Math.min(1, dt * 3);
+    player.quaternion.copy(quat);
+    bank.rotation.set(-pitchRate * 0.12, 0, -yawRate * 0.6);
+    craft.update(dt, time, burn, boost, clamp(Math.abs(speed) / 3000));
+    meridian.update(dt, time, 0, REDUCED ? 0.25 : 1);
+    universe.position.copy(pos).multiplyScalar(-1);
+
+    if (mode === 'play') {
+      camQ.slerp(quat, 1 - Math.exp(-dt * 5.5));
+      const back = craft.cam.back * (1 + spFrac * 0.35 + (boost ? 0.08 : 0)) * (W / H < 0.8 ? 1.7 : 1);
+      camera.position.set(0, craft.cam.up, -back).applyQuaternion(camQ);
+      camera.up.set(0, 1, 0).applyQuaternion(camQ);
+      camera.lookAt(tmp.set(0, 1.2, 14).applyQuaternion(camQ));
+      camera.fov = 52 + (REDUCED ? 0 : spFrac * 16 + (boost ? 4 : 0)) + (W / H < 0.8 ? 8 : 0);
+      camera.clearViewOffset();
+    } else {
+      // showroom orbit for the menu
+      const narrow = W / H < 0.9;
+      const az = 2.45 + menuSpin, el = 0.46, dist = narrow ? 36 : 23;
+      tmp.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist + 1, Math.cos(az) * Math.cos(el) * dist).applyQuaternion(quat);
+      camera.position.copy(tmp); camera.up.set(0, 1, 0).applyQuaternion(quat); camera.lookAt(0, 0, 0);
+      camera.fov = 40; camQ.copy(quat);
+      camera.setViewOffset(W, H, narrow ? 0 : -0.2 * W, narrow ? 0.27 * H : 0, W, H);
+    }
+    camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+
+    // light the ship with whatever world is closest
+    if (nearest && !nearest.place) {
+      tmp.copy(nearest.pos).sub(pos).normalize();
+      fillLight.position.copy(tmp).multiplyScalar(100);
+      fillLight.color.set(nearest.tint);
+      fillLight.intensity = clamp(nearest.radius / (nearest.surf + nearest.radius), 0, 1) * 1.4;
+    } else fillLight.intensity *= 0.95;
+
+    for (const w of worlds) if (w.baked) updateWorld(w, SUN_DIR, camera, time);
+    const spinT = REDUCED ? 0 : time;
+    byId.bumi.spin.rotation.y = 2.1 + spinT * 0.002; byId.bumi.mat.uniforms.uCloudShift.value = spinT * 0.0004;
+    byId.jupiter.spin.rotation.y = 2.55 + spinT * 0.0015; byId.saturnus.spin.rotation.y = spinT * 0.0015;
+    byId.mars.spin.rotation.y = 3.6 + spinT * 0.002; byId.neptunus.spin.rotation.y = 1.0 + spinT * 0.002; byId.venus.spin.rotation.y = -spinT * 0.001;
+    belt.visible = pos.distanceTo(BELT_POS) < 90000; belt.rotation.y = spinT * 0.0012;
+
+    // sky follows the camera; the Sun's disc is the size it would be from Earth
+    sky.group.position.copy(camera.position);
+    sky.placeSun(camera, SUN_DIR, 1, (H * pxScale) / (camera.fov * DEG));
+    const u = sky.streaks.material.uniforms, BOX = sky.BOX;
+    u.uOffset.value.set(((pos.x % BOX) + BOX) % BOX, ((pos.y % BOX) + BOX) % BOX, ((pos.z % BOX) + BOX) % BOX);
+    fwd.set(0, 0, 1).applyQuaternion(quat);
+    u.uVel.value.copy(fwd).multiplyScalar(REDUCED ? 0 : clamp(speed * 0.02, -60, 170));
+    u.uAmt.value = mode === 'play' ? clamp(0.16 + smooth(30, 2500, Math.abs(speed)) * 0.7) : 0;
+    sky.streaks.visible = u.uAmt.value > 0.003;
+    finalPass.uniforms.uAberr.value = REDUCED ? 0 : spFrac * 0.02;
+    finalPass.uniforms.uTime.value = REDUCED ? 0 : time;
+    composer.render(dt);
+
+    ui.update(dt);
+    if (firstFrame) { firstFrame = false; document.body.classList.add('ready'); }
+    if (mode === 'play') { saveClock += dt; if (saveClock > 5) { saveClock = 0; save(); } }
+    frames++;
+    if (!STILL && frames > 90 && !bakeQueue.length) {
+      slowAcc += dt; slowN++;
+      if (slowN >= 80) { const avg = slowAcc / slowN; slowAcc = 0; slowN = 0; if (avg > 0.03) { if (msaa > 0) { msaa = 0; for (const rt of [composer.renderTarget1, composer.renderTarget2]) { rt.samples = 0; rt.dispose(); } } else if (pxScale > 0.7) { pxScale = Math.max(0.7, pxScale * 0.85); renderer.setPixelRatio(pxScale); resize(); } } }
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Interface                                                           */
+  /* ------------------------------------------------------------------ */
+  function initUI() {
+    const root = document.documentElement, body = document.body;
+    const hud = $('#hud'), menu = $('#menu');
+    const el = {
+      spd: $('#spd'), spdC: $('#spd-c'), thr: $('#thr-fill'), thrRev: $('#thr-rev'), boost: $('#boost-tag'),
+      cx: $('#cx'), cy: $('#cy'), cz: $('#cz'), hdg: $('#hdg'), strip: $('#compass-strip'), blips: $('#compass-blips'),
+      nearName: $('#near-name'), nearDist: $('#near-dist'), approach: $('#approach'), apName: $('#ap-name'), apLine: $('#ap-line'), apFacts: $('#ap-facts'),
+      collection: $('#collection'), toast: $('#toast'), labels: $('#labels'),
+      learn: $('#learn'), learnName: $('#learn-name'), learnKind: $('#learn-kind'), learnIntro: $('#learn-intro'), learnSize: $('#learn-size'), learnBalls: $('#learn-balls'), learnSizeText: $('#learn-size-text'), learnFacts: $('#learn-facts'), learnWeight: $('#learn-weight'), learnKg: $('#learn-kg'), learnWeightOut: $('#learn-weight-out'), learnFun: $('#learn-fun'), learnNote: $('#learn-note'), apLearn: $('#ap-learn'), apLearnName: $('#ap-learn-name'), autoLearn: $('#set-learn'),
+      cont: $('#btn-continue'), start: $('#btn-start'), saveInfo: $('#save-info'), sound: $('#set-sound'), hudOp: $('#set-hud'), stickEl: $('#stick'), nub: $('#stick i'), lever: $('#lever'), leverNub: $('#lever i'),
+    };
+    root.style.setProperty('--hud', settings.hudOpacity);
+    el.sound.checked = !!settings.soundEnabled; el.hudOp.value = settings.hudOpacity; el.autoLearn.checked = settings.autoLearn !== false;
+
+    // compass tape: 3 px per degree, three turns so it can wrap
+    const PXD = 3, card = { 0: 'U', 90: 'T', 180: 'S', 270: 'B' };
+    let html = '';
+    for (let d = -360; d < 720; d += 15) {
+      const a = ((d % 360) + 360) % 360, major = a % 45 === 0;
+      html += `<i class="${major ? 'maj' : ''}" style="left:${(d + 360) * PXD}px">${card[a] ? `<b>${card[a]}</b>` : major ? `<span>${a}</span>` : ''}</i>`;
+    }
+    el.strip.innerHTML = html;
+    const blips = bodies.filter((b) => !b.minor).map((b) => { const n = document.createElement('i'); n.textContent = b.code; n.style.setProperty('--c', b.tint); el.blips.appendChild(n); return { b, n }; });
+    const labels = bodies.map((b) => { const n = document.createElement('div'); n.className = 'wl'; n.style.setProperty('--c', b.tint); n.innerHTML = `<b>${b.name}</b><span></span>`; el.labels.appendChild(n); return { b, n, dist: n.lastChild, shown: false }; });
+
+    function toast(msg) { el.toast.textContent = msg; el.toast.classList.remove('show'); void el.toast.offsetWidth; el.toast.classList.add('show'); }
+    function refreshCollection() { el.collection.textContent = `Dikunjungi ${visited.size}/${TOTAL}`; }
+    refreshCollection();
+
+    // menu
+    let armed = false;
+    const fmtDate = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    function refreshMenu() {
+      const has = !!saved;
+      el.cont.hidden = !has;
+      el.cont.textContent = started ? 'Lanjut terbang' : 'Lanjutkan petualangan';
+      armed = false;
+      el.start.textContent = has ? 'Mulai dari awal' : 'Mulai penjelajahan';
+      el.start.classList.toggle('btn--quiet', has);
+      let info = '';
+      if (has) info = `Tersimpan ${fmtDate.format(new Date(saved.lastSaved))}${saved.near ? `, dekat ${saved.near}` : ''}. ${visited.size} dari ${TOTAL} tempat sudah dikunjungi.`;
+      if (!storageOk) info += ' Browser ini tidak mengizinkan penyimpanan, jadi progres hanya bertahan selama tab terbuka.';
+      el.saveInfo.textContent = info;
+      $$('input[name="ship"]').forEach((r) => { r.checked = r.value === settings.selectedShip; });
+    }
+    function openMenu() { if (mode === 'menu') return; closeLearn(); save(); mode = 'menu'; menuSpin = 0; body.classList.remove('playing'); refreshMenu(); audio?.setOn(false); (el.cont.hidden ? el.start : el.cont).focus(); }
+    function play(fresh) {
+      if (fresh) { visited.clear(); place(SPAWN); refreshCollection(); }
+      else if (!started && saved) place(saved);
+      started = true; mode = 'play'; body.classList.add('playing'); saveClock = 0; playClock = 0;
+      for (const k in keys) keys[k] = false;
+      if (settings.soundEnabled) { try { audio = audio || makeAudio(); audio.setOn(true); } catch (err) { audio = null; } }
+      canvas.focus({ preventScroll: true }); save();
+      if (fresh || visited.size === 0) toast(COARSE ? 'Geser tuas kanan untuk gas, stik kiri untuk arah' : 'Tahan W untuk gas. Panah atau seret mouse untuk mengarahkan. Tekan F di dekat planet untuk belajar tentangnya.');
+    }
+    el.cont.addEventListener('click', () => play(false));
+    el.start.addEventListener('click', () => {
+      // starting over wipes the saved position, so ask once
+      if (saved && !armed) { armed = true; el.start.textContent = 'Hapus progres dan mulai lagi?'; return; }
+      play(true);
+    });
+    $('#btn-menu').addEventListener('click', openMenu);
+    $$('input[name="ship"]').forEach((r) => r.addEventListener('change', () => { if (r.checked) selectShip(r.value); }));
+    el.autoLearn.addEventListener('change', () => { settings.autoLearn = el.autoLearn.checked; store.set('playerSettings', settings); });
+    el.sound.addEventListener('change', () => { settings.soundEnabled = el.sound.checked; store.set('playerSettings', settings); });
+    el.hudOp.addEventListener('input', () => { settings.hudOpacity = parseFloat(el.hudOp.value); root.style.setProperty('--hud', settings.hudOpacity); store.set('playerSettings', settings); });
+    refreshMenu();
+
+    // keyboard
+    const GAME_KEYS = new Set(['w', 'a', 's', 'd', 'q', 'e', 'i', 'k', 'x', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
+    window.addEventListener('keydown', (ev) => {
+      const k = ev.key.toLowerCase();
+      if (k === 'escape') { if (learnOpen) closeLearn(); else if (mode === 'play') openMenu(); else if (started) play(false); return; }
+      if (mode !== 'play' || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (ev.target === el.learnKg) return;
+      if (k === 'f' && !ev.repeat) { if (learnOpen) closeLearn(); else if (apShown) openLearn(apShown); ev.preventDefault(); return; }
+      if (learnOpen) return;
+      if (GAME_KEYS.has(k)) { keys[k] = true; ev.preventDefault(); }
+    });
+    window.addEventListener('keyup', (ev) => { keys[ev.key.toLowerCase()] = false; });
+    window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+    // steer by dragging on the view (mouse), or with the stick (touch)
+    let dragId = null, dragX = 0, dragY = 0;
+    const setStick = (x, y) => { const m = Math.hypot(x, y); if (m > 1) { x /= m; y /= m; } stick.x = x; stick.y = y; el.nub.style.transform = `translate(${x * 34}px, ${y * 34}px)`; };
+    canvas.addEventListener('pointerdown', (ev) => {
+      if (mode !== 'play' || dragId !== null) return;
+      dragId = ev.pointerId; dragX = ev.clientX; dragY = ev.clientY; canvas.setPointerCapture?.(ev.pointerId);
+      el.stickEl.style.left = `${ev.clientX}px`; el.stickEl.style.top = `${ev.clientY}px`; el.stickEl.classList.add('on');
+    });
+    canvas.addEventListener('pointermove', (ev) => { if (ev.pointerId === dragId) setStick((ev.clientX - dragX) / 70, (ev.clientY - dragY) / 70); });
+    const endDrag = (ev) => { if (ev.pointerId !== dragId) return; dragId = null; setStick(0, 0); el.stickEl.classList.remove('on'); };
+    canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
+    canvas.addEventListener('wheel', (ev) => { if (mode !== 'play') return; ev.preventDefault(); throttle = clamp(throttle - Math.sign(ev.deltaY) * 0.08, -0.25, 1); }, { passive: false });
+    // throttle lever
+    let leverId = null;
+    const leverSet = (ev) => { const r = el.lever.getBoundingClientRect(); const f = 1 - clamp((ev.clientY - r.top) / r.height); throttle = clamp(-0.25 + f * 1.25, -0.25, 1); if (Math.abs(throttle) < 0.06) throttle = 0; };
+    el.lever.addEventListener('pointerdown', (ev) => { leverId = ev.pointerId; el.lever.setPointerCapture?.(ev.pointerId); leverSet(ev); });
+    el.lever.addEventListener('pointermove', (ev) => { if (ev.pointerId === leverId) leverSet(ev); });
+    el.lever.addEventListener('pointerup', () => { leverId = null; }); el.lever.addEventListener('pointercancel', () => { leverId = null; });
+    const hold = (btn, key) => { btn.addEventListener('pointerdown', (ev) => { keys[key] = true; btn.setPointerCapture?.(ev.pointerId); }); for (const t of ['pointerup', 'pointercancel']) btn.addEventListener(t, () => { keys[key] = false; }); };
+    hold($('#t-boost'), 'boost'); hold($('#t-stop'), 'x');
+
+    // save when the page goes away
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { save(); audio?.setOn(false); } else if (mode === 'play' && settings.soundEnabled) audio?.setOn(true); });
+    window.addEventListener('pagehide', save); window.addEventListener('beforeunload', save);
+
+    let audio = null, apShown = null, lastNear = '', learnBody = null, playClock = 0;
+
+    // learning card: what this world is, how big, how heavy you would be, and a few things worth remembering
+    const tintOf = (id) => bodies.find((x) => x.id === id)?.tint || '#6fa8ff';
+    function weighIn() {
+      const L = learnBody && LEARN[learnBody.id]; if (!L || L.g == null) return;
+      const kg = clamp(parseFloat(el.learnKg.value) || 30, 1, 300), there = kg * L.g;
+      const shown = there >= 10 ? nf0.format(there) : nf1.format(there);
+      el.learnWeightOut.innerHTML = learnBody.id === 'bumi'
+        ? `Di Bumi timbanganmu menunjukkan <b>${shown} kg</b>. Terbang ke dunia lain untuk membandingkan.`
+        : `Di ${learnBody.name} timbanganmu akan menunjukkan <b>${shown} kg</b>.${L.gNote ? `<small>${L.gNote}</small>` : ''}`;
+    }
+    function openLearn(b) {
+      const L = LEARN[b.id]; if (!L) return;
+      learnBody = b;
+      el.learn.style.setProperty('--c', b.tint);
+      el.learnName.textContent = b.name; el.learnKind.textContent = L.kind; el.learnIntro.textContent = L.intro;
+      el.learnFacts.innerHTML = L.facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+      el.learnFun.innerHTML = L.fun.map((t) => `<li>${t}</li>`).join('');
+      el.learnNote.textContent = L.note || '';
+      // size beside Earth (or, for Earth, beside the Moon), drawn to scale
+      el.learnSize.hidden = !L.diam;
+      if (L.diam) {
+        const other = L.cmp === 'bulan' ? { name: 'Bulan', diam: LEARN.bulan.diam, tint: tintOf('bulan') } : { name: 'Bumi', diam: EARTH_DIAM, tint: tintOf('bumi') };
+        const me = { name: L.diamName || b.name, diam: L.diam, tint: b.tint };
+        const big = Math.max(me.diam, other.diam), px = (d) => Math.max(4, Math.round((d / big) * 96));
+        el.learnBalls.innerHTML = [other, me].map((o) => `<figure><i style="width:${px(o.diam)}px;height:${px(o.diam)}px;font-size:${px(o.diam)}px;--b:${o.tint}"></i><figcaption>${o.name}</figcaption></figure>`).join('');
+        const r = me.diam / other.diam;
+        el.learnSizeText.textContent = b.id === 'bumi' ? 'Lebar Bulan hanya sekitar 27% dari lebar Bumi. Gambar ini sesuai skala.'
+          : r >= 1.05 ? `Lebar ${me.name} sekitar ${nf1.format(r)} kali lebar Bumi. Gambar ini sesuai skala.`
+          : r > 0.95 ? `${me.name} hampir sama besar dengan Bumi. Gambar ini sesuai skala.`
+          : `Lebar ${me.name} hanya sekitar ${nf0.format(r * 100)}% dari lebar Bumi. Gambar ini sesuai skala.`;
+      }
+      el.learnWeight.hidden = L.g == null; weighIn();
+      el.learn.scrollTop = 0; el.learn.classList.add('open'); learnOpen = true; body.classList.add('learning');
+      $('#learn-close').focus({ preventScroll: true });
+    }
+    function closeLearn() {
+      if (!learnOpen) return;
+      learnOpen = false; el.learn.classList.remove('open'); body.classList.remove('learning');
+      if (mode === 'play') canvas.focus({ preventScroll: true });
+    }
+    el.apLearn.addEventListener('click', () => { if (apShown) openLearn(apShown); });
+    $('#learn-close').addEventListener('click', closeLearn); $('#learn-go').addEventListener('click', closeLearn);
+    el.learnKg.addEventListener('input', weighIn);
+    const proj = V3(), loc = V3();
+
+    function update(dt) {
+      if (mode !== 'play') return;
+      playClock += dt;
+      // compass: heading over the galactic plane, and where each world sits relative to the nose
+      fwd.set(0, 0, 1).applyQuaternion(quat);
+      const hdg = ((Math.atan2(-fwd.x, fwd.z) / DEG) + 360) % 360;
+      el.strip.style.transform = `translate3d(${-(hdg + 360) * PXD}px, 0, 0)`;
+      qInv.copy(quat).invert();
+      for (const { b, n } of blips) {
+        loc.copy(b.pos).sub(pos).applyQuaternion(qInv);
+        const rel = Math.atan2(-loc.x, loc.z) / DEG, elev = Math.asin(clamp(loc.y / (loc.length() || 1), -1, 1)) / DEG;
+        const vis = Math.abs(rel) < 72;
+        n.style.opacity = vis ? (b === nearest ? 1 : 0.8) : 0;
+        if (vis) { n.style.transform = `translate3d(${rel * PXD}px, 0, 0)`; n.dataset.v = elev > 14 ? 'up' : elev < -14 ? 'down' : ''; n.classList.toggle('near', b === nearest); }
+      }
+      // names pinned to the worlds themselves
+      const halfH = Math.tan(camera.fov * DEG / 2);
+      for (const l of labels) {
+        proj.copy(l.b.pos).sub(pos).applyMatrix4(camera.matrixWorldInverse);
+        const depth = -proj.z;
+        let show = depth > 1;
+        let sx = 0, sy = 0, pr = 0;
+        if (show) {
+          sx = (proj.x / (depth * halfH * camera.aspect)) * 0.5 + 0.5; sy = (-proj.y / (depth * halfH)) * 0.5 + 0.5;
+          pr = (l.b.radius / depth) / halfH * H * 0.5;
+          show = sx > 0.03 && sx < 0.97 && sy > 0.1 && sy < 0.9 && pr < H * (l.b.place ? 0.5 : 0.2);
+        }
+        if (show) {
+          // hidden behind another world?
+          loc.copy(l.b.pos).sub(pos); const far = loc.length(); loc.divideScalar(far || 1);
+          for (const w of worlds) {
+            if (w.def === l.b) continue;
+            proj.copy(w.def.pos).sub(pos); const t = proj.dot(loc);
+            if (t > 0 && t < far && proj.addScaledVector(loc, -t).length() < w.def.radius) { show = false; break; }
+          }
+        }
+        if (show !== l.shown) { l.shown = show; l.n.style.opacity = show ? 1 : 0; }
+        if (show) { l.n.style.transform = `translate3d(${(sx * W).toFixed(1)}px, ${(sy * H - Math.max(10, pr) - 8).toFixed(1)}px, 0)`; l.n.classList.toggle('near', l.b === nearest); }
+      }
+
+      hudClock += dt;
+      if (hudClock < 0.1) return;
+      hudClock = 0;
+      const kms = Math.abs(speed) * UNIT_KM;
+      el.spd.textContent = nf0.format(kms);
+      el.spdC.textContent = speed < -1 ? 'Mundur' : `${nf2.format(kms / C_KMS)} c`;
+      el.thr.style.transform = `scaleY(${Math.max(0, throttle)})`; el.thrRev.style.transform = `scaleY(${Math.max(0, -throttle) * 4})`;
+      el.boost.classList.toggle('on', boost);
+      el.leverNub.style.top = `${(1 - (throttle + 0.25) / 1.25) * 100}%`;
+      el.cx.textContent = nf1.format(pos.x * UNIT_KM / 1000); el.cy.textContent = nf1.format(pos.y * UNIT_KM / 1000); el.cz.textContent = nf1.format(pos.z * UNIT_KM / 1000);
+      el.hdg.textContent = `${String(Math.round(hdg) % 360).padStart(3, '0')}°`;
+      for (const l of labels) if (l.shown) l.dist.textContent = fmtKm(l.b.surf * UNIT_KM);
+      if (nearest) {
+        if (nearest.name !== lastNear) { lastNear = nearest.name; el.nearName.textContent = nearest.name; root.style.setProperty('--world', nearest.tint); }
+        el.nearDist.textContent = fmtKm(nearestSurf * UNIT_KM);
+        const reach = nearest.reach ?? nearest.radius * 3;
+        const close = nearestSurf < reach;
+        if (close && apShown !== nearest) {
+          apShown = nearest;
+          el.apName.textContent = nearest.name; el.apLine.textContent = nearest.line; el.apLearnName.textContent = nearest.name;
+          el.apFacts.innerHTML = nearest.facts.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+          el.approach.classList.add('show');
+          if (!visited.has(nearest.id)) {
+            visited.add(nearest.id); refreshCollection(); save(); toast(`${nearest.name} dikunjungi. Posisi tersimpan.`);
+            if (settings.autoLearn !== false && playClock > 4) openLearn(nearest);     // not over the opening view
+          }
+        } else if (!close && apShown && (apShown !== nearest || nearestSurf > reach * 1.25)) { apShown = null; el.approach.classList.remove('show'); if (!learnOpen) learnBody = null; }
+      }
+      audio?.update(burn, boost);
+    }
+    return { update };
+  }
+
+  function makeAudio() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    const master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.connect(master);
+    for (const [f, type, g] of [[55, 'sine', 0.4], [82.6, 'sine', 0.22], [110.4, 'triangle', 0.08], [164.2, 'sine', 0.05]]) {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = f;
+      const og = ctx.createGain(); og.gain.value = g;
+      const l = ctx.createOscillator(); l.frequency.value = 0.05 + Math.random() * 0.08; const lg = ctx.createGain(); lg.gain.value = g * 0.4;
+      l.connect(lg); lg.connect(og.gain); o.connect(og); og.connect(lp); o.start(); l.start();
+    }
+    const len = ctx.sampleRate * 3, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    let b0 = 0; for (let i = 0; i < len; i++) { b0 = (b0 + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = b0 * 3.2; }
+    const noise = ctx.createBufferSource(); noise.buffer = buf; noise.loop = true;
+    const bp = ctx.createBiquadFilter(); bp.type = 'lowpass'; bp.frequency.value = 160;
+    const eg = ctx.createGain(); eg.gain.value = 0;
+    noise.connect(bp); bp.connect(eg); eg.connect(master); noise.start();
+    return {
+      setOn(on) { if (on) ctx.resume(); master.gain.setTargetAtTime(on ? 0.45 : 0, ctx.currentTime, 0.3); },
+      update(burnAmt, boosting) { eg.gain.setTargetAtTime(burnAmt * (boosting ? 1.0 : 0.6), ctx.currentTime, 0.15); bp.frequency.setTargetAtTime(140 + burnAmt * (boosting ? 900 : 480), ctx.currentTime, 0.2); },
+    };
+  }
+
+  // test hooks
+  function goTo(id, alt = 600, az = 200, el = 12, yawOff = 0.3) {
+    const b = bodies.find((x) => x.id === id), d = dirFrom(az, el), m = new THREE.Matrix4();
+    pos.copy(b.pos).addScaledVector(d, b.radius + alt);
+    m.lookAt(b.pos, pos, V3(0, 1, 0)); quat.setFromRotationMatrix(m);
+    quat.multiply(dq.setFromEuler(eul.set(0, yawOff, 0))).normalize(); camQ.copy(quat); speed = 0; throttle = 0;
+  }
+  window.__farshore = { goTo, worlds, bodies, place, get pos() { return pos; }, get mode() { return mode; }, selectShip, keys, setThrottle(v) { throttle = v; }, get speed() { return speed; }, get baked() { return !bakeQueue.length; } };
+  requestAnimationFrame(frame);
+}
+
+function start(data) { try { boot(data || {}); } catch (err) { console.error(err); document.body.classList.add('no-gl'); } }
+if (window.claude?.hot?.ready) window.claude.hot.ready(start); else start(window.claude?.hot?.data ?? {});
+
+</script>
+</body>
+</html>
